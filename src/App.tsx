@@ -471,18 +471,28 @@ function App() {
     setGroupRoomBusy(true)
     setGroupRoomMessage('')
     try {
-      const { data: room, error: roomError } = await supabase.from('group_rooms')
-        .select('id,owner_id,name,invite_code,created_at').eq('invite_code', code).maybeSingle()
-      if (roomError) throw roomError
-      if (!room) throw new Error('ไม่พบรหัสห้องนี้ ตรวจสอบรหัสแล้วลองอีกครั้ง')
-      const { error: joinError } = await supabase.from('group_members')
-        .upsert({ room_id: room.id, user_id: authSession.user.id, role: 'member' }, { onConflict: 'room_id,user_id', ignoreDuplicates: true })
+      // Use a SECURITY DEFINER RPC so RLS can protect room listings while still
+      // allowing a signed-in user to join by a valid invite code.
+      const { data: joinedRoomData, error: joinError } = await supabase.rpc('join_group_room_by_code', {
+        p_invite_code: code,
+      })
       if (joinError) throw joinError
+      const room = Array.isArray(joinedRoomData) ? joinedRoomData[0] : joinedRoomData
+      if (!room) throw new Error('ไม่พบรหัสห้องนี้ หรือไม่มีสิทธิ์เข้าร่วมห้อง ตรวจสอบรหัสแล้วลองอีกครั้ง')
       setJoinRoomCode('')
       setGroupRoomMessage(`เข้าร่วมห้อง “${room.name}” สำเร็จแล้ว`)
-      const { data: members, error: membersError } = await supabase.from('group_members').select('room_id,user_id,role').eq('room_id', room.id)
-      if (membersError) throw membersError
-      setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: (members || []).map(member => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
+      // Avoid a second membership SELECT that may be blocked by a restrictive RLS policy.
+      setGroupRooms(current => [{
+        id: Date.now(),
+        dbId: room.id,
+        ownerId: room.owner_id,
+        name: room.name,
+        code: room.invite_code,
+        members: [
+          { userId: room.owner_id, role: 'owner' },
+          { userId: authSession.user.id, role: 'member' },
+        ],
+      }, ...current.filter(item => item.dbId !== room.id)])
     } catch (error) {
       console.error('เข้าร่วมห้องงานกลุ่มไม่สำเร็จ:', error)
       setGroupRoomMessage(error instanceof Error ? `เข้าร่วมห้องไม่สำเร็จ: ${error.message}` : 'เข้าร่วมห้องไม่สำเร็จ กรุณาตรวจสอบ RLS policies ใน Supabase')

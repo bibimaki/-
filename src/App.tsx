@@ -1251,7 +1251,7 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
                   }
 
                               const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-                  const storagePath = `${userId}/${task.id}/${attachmentId}-${safeName}`
+                  const storagePath = `${authSession.user.id}/${task.id}/${attachmentId}-${safeName}`
 
                   const { error: uploadError } = await supabase.storage
                     .from('task-attachments')
@@ -1375,7 +1375,7 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
                   }
 
                               const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-                  const storagePath = `${userId}/${task.id}/${attachmentId}-${safeName}`
+                  const storagePath = `${authSession.user.id}/${task.id}/${attachmentId}-${safeName}`
 
                   const { error: uploadError } = await supabase.storage
                     .from('task-attachments')

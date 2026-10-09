@@ -471,31 +471,37 @@ function App() {
     setGroupRoomBusy(true)
     setGroupRoomMessage('')
     try {
-      // Use a SECURITY DEFINER RPC so RLS can protect room listings while still
-      // allowing a signed-in user to join by a valid invite code.
-      const { data: joinedRoomData, error: joinError } = await supabase.rpc('join_group_room_by_code', {
-        p_invite_code: code,
+      // Use the SECURITY DEFINER RPC so users can join rooms they do not own
+      // without granting broad SELECT access to every room under RLS.
+      const { data, error } = await supabase.rpc('join_group_room_by_code', {
+        p_code: code,
       })
-      if (joinError) throw joinError
-      const room = Array.isArray(joinedRoomData) ? joinedRoomData[0] : joinedRoomData
-      if (!room) throw new Error('ไม่พบรหัสห้องนี้ หรือไม่มีสิทธิ์เข้าร่วมห้อง ตรวจสอบรหัสแล้วลองอีกครั้ง')
+      if (error) throw error
+      const room = Array.isArray(data) ? data[0] : data
+      if (!room?.id) throw new Error('ระบบไม่พบข้อมูลห้องหลังเข้าร่วม กรุณาลองอีกครั้ง')
+
       setJoinRoomCode('')
       setGroupRoomMessage(`เข้าร่วมห้อง “${room.name}” สำเร็จแล้ว`)
-      // Avoid a second membership SELECT that may be blocked by a restrictive RLS policy.
+      // RLS may only allow a member to read their own membership row. Do not
+      // query every member here; that query is not needed to confirm joining.
       setGroupRooms(current => [{
         id: Date.now(),
         dbId: room.id,
         ownerId: room.owner_id,
         name: room.name,
         code: room.invite_code,
-        members: [
-          { userId: room.owner_id, role: 'owner' },
-          { userId: authSession.user.id, role: 'member' },
-        ],
+        members: [{ userId: authSession.user.id, role: 'member' }],
       }, ...current.filter(item => item.dbId !== room.id)])
     } catch (error) {
       console.error('เข้าร่วมห้องงานกลุ่มไม่สำเร็จ:', error)
-      setGroupRoomMessage(error instanceof Error ? `เข้าร่วมห้องไม่สำเร็จ: ${error.message}` : 'เข้าร่วมห้องไม่สำเร็จ กรุณาตรวจสอบ RLS policies ใน Supabase')
+      const message = error instanceof Error ? error.message : String(error || '')
+      if (/ไม่พบรหัสห้องนี้/i.test(message)) {
+        setGroupRoomMessage('ไม่พบรหัสห้องนี้ ตรวจสอบรหัสแล้วลองอีกครั้ง')
+      } else if (/row-level security|permission denied|not allowed/i.test(message)) {
+        setGroupRoomMessage('เข้าร่วมห้องไม่ได้เนื่องจากสิทธิ์ฐานข้อมูล Supabase ปฏิเสธคำขอ กรุณาตรวจสอบสิทธิ์ของฟังก์ชันและตารางสมาชิก')
+      } else {
+        setGroupRoomMessage(`เข้าร่วมห้องไม่สำเร็จ: ${message || 'กรุณาลองอีกครั้ง'}`)
+      }
     } finally {
       setGroupRoomBusy(false)
     }
@@ -940,6 +946,7 @@ function App() {
           </form>
           {groupRoomMessage && <p className="task-inline-message" role="status">{groupRoomMessage}</p>}
           {groupRooms.length === 0 ? <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีห้องงานกลุ่ม</strong><p>สร้างห้องใหม่หรือกรอกรหัสที่เพื่อนส่งให้เพื่อเข้าร่วม</p></div> : <div className="group-room-grid">{groupRooms.map(room => {
+            const inviteLink = `${window.location.origin}${window.location.pathname}?join=${encodeURIComponent(room.code)}`
             return <article className={`group-room-card ${selectedRoomId === room.id ? 'room-selected' : ''}`} key={room.dbId}>
               <div className="group-room-card-top"><span className="group-room-icon">♧</span><span className="group-room-count">{room.members.length} คน · {tasks.filter(task => task.groupRoomId === room.id).length} งาน</span></div>
               <h3>{room.name}</h3>

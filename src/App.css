@@ -3290,3 +3290,28 @@ main, .main-content, .app-main, .content, .page-content, .workspace, .dashboard-
 .room-theme-card > small { margin-top: 5px; color: #8a789b; font-size: 11px; line-height: 1.5; }
 .room-theme-check { position: absolute; right: 9px; bottom: 9px; padding: 5px 9px; border: 1px solid #ffffffa8; border-radius: 999px; background: #6f4bbbe8; color: white; font-size: 11px; box-shadow: 0 2px 9px #21153255; }
 @media (max-width: 560px) { .room-theme-grid { grid-template-columns: minmax(0, 1fr); } .room-theme-image { height: 170px; } }
+/* ปรับชื่อ class ให้ตรงกับโค้ดจริงในโปรเจกต์ */
+.room-character {
+  height: 260px;
+  width: auto;
+  object-fit: contain;
+  object-position: bottom;
+  position: relative;
+  z-index: 2;
+}
+
+.room-pet {
+  width: 100px;
+  height: auto;
+  object-fit: contain;
+  position: absolute;
+  right: 8%;
+  bottom: 12%;
+  z-index: 3;
+  animation: pet-float 3s ease-in-out infinite;
+}
+
+@keyframes pet-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}

@@ -3315,3 +3315,11 @@ main, .main-content, .app-main, .content, .page-content, .workspace, .dashboard-
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }
 }
+/* พื้นหลังหลักของ Aevora */
+body {
+  background-image: url("/images/bg-home.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}

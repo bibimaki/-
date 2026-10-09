@@ -1,96 +1,159 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
-import type { Session } from '@supabase/supabase-js'
-import { supabase, isSupabaseConfigured } from './lib/supabase'
-
-import './App.css'
-
-type Subtask = {
-  id: number
-  title: string
-  done: boolean
 }
 
-type TaskAttachment = {
-  id: number
-  name: string
-  size: number
-  dataUrl?: string
-  addedAt: string
-  storagePath?: string
-}
-
-const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024
-const ATTACHMENT_DB = 'aevora_attachment_store'
-const ATTACHMENT_STORE = 'files'
-
-const CHARACTER_OPTIONS = [
-  { id: 'g1', gender: 'หญิง', name: 'เจ้าหญิงชมพู', file: '/images/characters/g1.png' },
-  { id: 'g2', gender: 'หญิง', name: 'นักอ่านแห่งดวงดาว', file: '/images/characters/g2.png' },
-  { id: 'g3', gender: 'หญิง', name: 'สาวน้อยโกธิก', file: '/images/characters/g3.png' },
-  { id: 'g4', gender: 'หญิง', name: 'นักเดินทางหิมะ', file: '/images/characters/g4.png' },
-  { id: 'g5', gender: 'หญิง', name: 'แม่มดม่วง', file: '/images/characters/g5.png' },
-  { id: 'g6', gender: 'หญิง', name: 'ภูตแห่งสวนดอกไม้', file: '/images/characters/g6.png' },
-  { id: 'g7', gender: 'หญิง', name: 'นักฝันสีชมพู', file: '/images/characters/g7.png' },
-  { id: 'b1', gender: 'ชาย', name: 'เกมเมอร์รัตติกาล', file: '/images/characters/b1.png' },
-  { id: 'b2', gender: 'ชาย', name: 'นักเดินทางป่า', file: '/images/characters/b2.png' },
-  { id: 'b3', gender: 'ชาย', name: 'นักผจญภัยสีทอง', file: '/images/characters/b3.png' },
-  { id: 'b4', gender: 'ชาย', name: 'นักสเกตเพลิง', file: '/images/characters/b4.png' },
-  { id: 'b5', gender: 'ชาย', name: 'เกมเมอร์น้ำแข็ง', file: '/images/characters/b5.png' },
-] as const
-
-const PET_OPTIONS = [
-  { id: 'pet1', name: 'กระต่ายหัวใจ', file: '/images/pets/Pet1.png' },
-  { id: 'pet2', name: 'แมวดำเวทมนตร์', file: '/images/pets/Pet2.png' },
-  { id: 'pet3', name: 'แมวหลับจันทร์', file: '/images/pets/Pet3.png' },
-  { id: 'pet4', name: 'เมฆน้อยพ่อมด', file: '/images/pets/Pet4.png' },
-  { id: 'pet5', name: 'ภูตใบไม้', file: '/images/pets/Pet5.png' },
-  { id: 'pet6', name: 'จิ้งจอกดวงดาว', file: '/images/pets/Pet6.png' },
-  { id: 'pet7', name: 'ก้อนเมฆปุย', file: '/images/pets/Pet7.png' },
-  { id: 'pet8', name: 'ค้างคาวรัตติกาล', file: '/images/pets/Pet8.png' },
- ] as const
-
-const ROOM_OPTIONS = [
-  { icon: '🌙', name: 'ห้องอ่านหนังสือยามค่ำคืน', theme: '🌙 ห้องอ่านหนังสือยามค่ำคืน', file: '/images/room-backgrounds/bg-room-night.png', description: 'โต๊ะทำงานแสนอบอุ่นใต้ท้องฟ้าดวงดาว' },
-  { icon: '🌸', name: 'ห้องพักสวนดอกไม้', theme: '🌸 ห้องพักสวนดอกไม้', file: '/images/room-backgrounds/bg-room-garden.png', description: 'มุมพักผ่อนท่ามกลางดอกไม้และแสงโคม' },
-  { icon: '🌿', name: 'ห้องสวนเวทมนตร์', theme: '🌿 ห้องสวนเวทมนตร์', file: '/images/room-backgrounds/bg-room-greenhouse.png', description: 'ห้องกระจกที่เต็มไปด้วยต้นไม้และแสงอาทิตย์' },
-  { icon: '✨', name: 'ห้องนอนใต้แสงจันทร์', theme: '✨ ห้องนอนใต้แสงจันทร์', file: '/images/room-backgrounds/bg-room-moonlight.png', description: 'ห้องนอนนุ่ม ๆ กับพระจันทร์เสี้ยว' },
-] as const
-
-function normalizeRoomTheme(value: string | null) {
-  if (value && ROOM_OPTIONS.some(item => item.theme === value)) return value
-  if (value?.includes('สวนดอกไม้')) return ROOM_OPTIONS[1].theme
-  if (value?.includes('ป่ามหัศจรรย์') || value?.includes('สวนเวทมนตร์')) return ROOM_OPTIONS[2].theme
-  if (value?.includes('นอน') || value?.includes('จันทร์')) return ROOM_OPTIONS[3].theme
-  return ROOM_OPTIONS[0].theme
-}
-
-function normalizePetValue(value: string | undefined) {
-  if (value && PET_OPTIONS.some(item => value.startsWith(item.id))) return value
-  // Convert previously saved emoji-based pet choices to the closest matching image pet.
-  if (value?.includes('จิ้งจอก')) return 'pet6 จิ้งจอกดวงดาว'
-  if (value?.includes('แมว')) return 'pet2 แมวดำเวทมนตร์'
-  if (value?.includes('กระต่าย')) return 'pet1 กระต่ายหัวใจ'
-  return 'pet1 กระต่ายหัวใจ'
-}
-
-function characterLabel(id: string) {
-  const item = CHARACTER_OPTIONS.find(character => character.id === id) || CHARACTER_OPTIONS[0]
-  return `${item.id} · ${item.name}`
-}
-
-
-function openAttachmentDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(ATTACHMENT_DB, 1)
-    request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains(ATTACHMENT_STORE)) request.result.createObjectStore(ATTACHMENT_STORE) }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
-}
-
-async function getAttachmentBlob(key: string): Promise<Blob | undefined> {
+async function removeAttachmentBlob(key: string): Promise<void> {
   const db = await openAttachmentDb()
-  const result = await new Promise<Blob | undefined>((resolve, reject) => { const request = db.transaction(ATTACHMENT_STORE, 'readonly').objectStore(ATTACHMENT_STORE).get(key); request.onsuccess = () => resolve(request.result as Blob | undefined); request.onerror = () => reject(request.error) })
+  await new Promise<void>((resolve, reject) => { const tx = db.transaction(ATTACHMENT_STORE, 'readwrite'); tx.objectStore(ATTACHMENT_STORE).delete(key); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error) })
   db.close()
-  return result
+}
+
+type TaskComment = { id: number; author: string; text: string; createdAt: string; privateNote: boolean }
+type HelpRequest = { id: number; text: string; status: 'เปิดอยู่' | 'แก้ไขแล้ว'; createdAt: string }
+type ActivityEntry = { id: number; text: string; createdAt: string }
+
+type GroupRoom = {
+  id: number
+  dbId: string
+  ownerId: string
+  name: string
+  code: string
+  members: { userId: string; role: string }[]
+}
+
+type Task = {
+
+  id: number
+
+  title: string
+
+  subject: string
+
+  type: 'งานเดี่ยว' | 'งานกลุ่ม'
+
+  due: string
+
+  dueDate?: string
+  description?: string
+  subtasks?: Subtask[]
+  groupRoomId?: number
+  assignedTo?: string
+  attachments?: TaskAttachment[]
+  comments?: TaskComment[]
+  helpRequests?: HelpRequest[]
+  activity?: ActivityEntry[]
+  completedAt?: string
+
+  progress: number
+
+  done: boolean
+
+}
+
+const initialTasks: Task[] = [
+
+  { id: 1, title: 'ทำสไลด์นำเสนอ บทที่ 3', subject: 'วิชาการตลาดดิจิทัล', type: 'งานกลุ่ม', due: 'วันนี้ 14:00', progress: 80, done: false },
+
+  { id: 2, title: 'เขียนรายงานผลการทดลอง', subject: 'วิชาวิทยาศาสตร์สิ่งแวดล้อม', type: 'งานเดี่ยว', due: 'วันนี้ 20:00', progress: 30, done: false },
+
+  { id: 3, title: 'หาข้อมูลอ้างอิงเพิ่มเติม', subject: 'โปรเจกต์วิจัยกลุ่ม', type: 'งานกลุ่ม', due: 'พรุ่งนี้', progress: 0, done: false },
+
+  { id: 4, title: 'ออกแบบโปสเตอร์กิจกรรม', subject: 'ชมรมการศึกษา', type: 'งานเดี่ยว', due: 'พรุ่งนี้', progress: 0, done: false },
+
+  { id: 5, title: 'อ่านบททบทวนเตรียมสอบ', subject: 'วิชาจิตวิทยา', type: 'งานเดี่ยว', due: '12 ต.ค.', progress: 0, done: false },
+
+]
+
+const navItems = [
+
+  ['⌂', 'หน้าหลัก'], ['▤', 'งานของฉัน'], ['♧', 'งานกลุ่ม'], ['▦', 'ปฏิทิน'],
+
+  ['⌂', 'พื้นที่ส่วนตัว'], ['♙', 'ตัวละคร'], ['✉', 'เชิญเพื่อน'], ['✓', 'ภารกิจ'], ['♜', 'ความสำเร็จ'],
+
+  ['⚙', 'ตั้งค่า'],
+
+]
+
+const rewardItems = [
+  { id: 'moon-lamp', icon: '🌙', name: 'โคมจันทร์', goal: 1, description: 'รางวัลแรกของการเริ่มต้น' },
+  { id: 'flower-vase', icon: '🌷', name: 'แจกันดอกไม้', goal: 3, description: 'รางวัลจากการทำงานสำเร็จ 3 งาน' },
+  { id: 'star-sparkle', icon: '✨', name: 'ประกายดาว', goal: 5, description: 'รางวัลจากความพยายาม 5 งาน' },
+  { id: 'tiny-plant', icon: '🪴', name: 'ต้นไม้จิ๋ว', goal: 10, description: 'รางวัลพิเศษเมื่อสำเร็จ 10 งาน' },
+]
+
+type RewardUnlock = { id: string; unlockedAt: string }
+
+type Filter = 'ทั้งหมด' | 'กำลังทำ' | 'เสร็จแล้ว' | 'งานเดี่ยว' | 'งานกลุ่ม'
+
+function getTaskProgress(task: Task) {
+  if (task.done) return 100
+  if (task.subtasks?.length) return Math.round(task.subtasks.filter(item => item.done).length / task.subtasks.length * 100)
+  return task.progress || 0
+}
+
+function App() {
+  const [authSession, setAuthSession] = useState<Session | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
+
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) {
+      setAuthLoading(false)
+      return
+    }
+    let alive = true
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!alive) return
+      if (error) console.error('ตรวจสอบสถานะการเข้าสู่ระบบไม่สำเร็จ:', error.message)
+      setAuthSession(data.session)
+      setAuthLoading(false)
+    })
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthSession(session)
+      setAuthLoading(false)
+    })
+    return () => {
+      alive = false
+      listener.subscription.unsubscribe()
+    }
+  }, [])
+
+
+  const [tasks, setTasks] = useState<Task[]>(() => {
+
+    try {
+
+      const saved = localStorage.getItem('aevora_tasks')
+
+      return saved ? (JSON.parse(saved) as Task[]) : initialTasks
+
+    } catch {
+
+      return initialTasks
+
+    }
+
+  })
+
+ const [activeNav, setActiveNav] = useState(() => {
+
+  try {
+
+    return localStorage.getItem('aevora_active_nav') || 'หน้าหลัก'
+
+  } catch {
+
+    return 'หน้าหลัก'
+
+  }
+
+})
+
+  const [showForm, setShowForm] = useState(false)
+
+  const [search, setSearch] = useState('')
+
+  const [filter, setFilter] = useState<Filter>('ทั้งหมด')
+
+  const [editingId, setEditingId] = useState<number | null>(null)
+
+  const [title, setTitle] = useState('')
+
+  const [subject, setSubject] = useState('')

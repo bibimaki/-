@@ -3455,4 +3455,9 @@ body {
   .exp-orb-image img,
   .stat-icon-image img { animation: none; }
 }
-
+.sidebar {
+  background-image: url('/images/bg-home.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}

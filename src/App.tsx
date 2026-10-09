@@ -104,6 +104,7 @@ async function removeAttachmentBlob(key: string): Promise<void> {
 
 type TaskComment = { id: number; author: string; text: string; createdAt: string; privateNote: boolean }
 type HelpRequest = { id: number; text: string; status: 'เปิดอยู่' | 'แก้ไขแล้ว'; createdAt: string }
+type RoomHelpRequest = { id: string; room_id: string; user_id: string; message: string; status: 'open' | 'resolved'; created_at: string }
 type ActivityEntry = { id: number; text: string; createdAt: string }
 
 type GroupRoom = {
@@ -137,6 +138,7 @@ type Task = {
   helpRequests?: HelpRequest[]
   activity?: ActivityEntry[]
   completedAt?: string
+  workflowStatus?: 'planning' | 'active'
 
   progress: number
 
@@ -270,9 +272,15 @@ function App() {
   const [groupRoomBusy, setGroupRoomBusy] = useState(false)
   const [groupRoomMessage, setGroupRoomMessage] = useState('')
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null)
+  const [planTitle, setPlanTitle] = useState('')
+  const [planSubject, setPlanSubject] = useState('')
+  const [planDescription, setPlanDescription] = useState('')
+  const [planAssignee, setPlanAssignee] = useState('')
+  const [planDue, setPlanDue] = useState('')
   const [roomCommentText, setRoomCommentText] = useState('')
   const [roomComments, setRoomComments] = useState<{ id: string; user_id: string; body: string; created_at: string }[]>([])
   const [roomHelpText, setRoomHelpText] = useState('')
+  const [roomHelpRequests, setRoomHelpRequests] = useState<RoomHelpRequest[]>([])
   const [roomActionMessage, setRoomActionMessage] = useState('')
   const [privateCommentByTask, setPrivateCommentByTask] = useState<Record<string, string>>({})
   const [privateComments, setPrivateComments] = useState<{ id: string; task_key: string; author_id: string; recipient_id: string; body: string; created_at: string }[]>([])
@@ -389,7 +397,23 @@ function App() {
     if (error) { setRoomActionMessage(`ส่งคำขอความช่วยเหลือไม่สำเร็จ: ${error.message}`); return }
     setRoomHelpText('')
     setRoomActionMessage('ส่งคำขอความช่วยเหลือให้โฮสต์แล้ว')
+    const { data: helpRows } = await supabase.from('group_help_requests').select('id,room_id,user_id,message,status,created_at').eq('room_id', room.dbId).order('created_at', { ascending: false })
+    if (helpRows) setRoomHelpRequests(helpRows as RoomHelpRequest[])
   }
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadHelpRequests() {
+      const room = groupRooms.find(item => item.id === selectedRoomId)
+      if (!room?.dbId || !supabase || !authSession?.user?.id) { setRoomHelpRequests([]); return }
+      const { data, error } = await supabase.from('group_help_requests').select('id,room_id,user_id,message,status,created_at').eq('room_id', room.dbId).order('created_at', { ascending: false })
+      if (cancelled) return
+      if (error) { setRoomHelpRequests([]); return }
+      setRoomHelpRequests((data || []) as RoomHelpRequest[])
+    }
+    void loadHelpRequests()
+    return () => { cancelled = true }
+  }, [selectedRoomId, groupRooms, authSession?.user?.id])
 
   // Load shared group tasks only after the signed-in user's rooms are available.
   useEffect(() => {
@@ -444,7 +468,7 @@ function App() {
   useEffect(() => {
     if (!sharedTasksReady || !cloudReady || !supabase || !authSession?.user?.id) return
     let cancelled = false
-    const shared = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId !== undefined)
+    const shared = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId !== undefined && (task.workflowStatus !== 'planning' || groupRooms.some(room => room.id === task.groupRoomId && room.ownerId === authSession!.user.id)))
     const timer = window.setTimeout(async () => {
       for (const task of shared) {
         const room = groupRooms.find(item => item.id === task.groupRoomId)
@@ -464,6 +488,67 @@ function App() {
     }, 500)
     return () => { cancelled = true; window.clearTimeout(timer) }
   }, [sharedTasksReady, cloudReady, authSession?.user?.id, tasks, groupRooms])
+
+  useEffect(() => {
+    if (!supabase || !authSession?.user?.id || !cloudReady || groupRooms.length === 0) return
+    const roomIds = groupRooms.map(room => room.dbId).filter(Boolean)
+    let cancelled = false
+    const refreshSharedTasks = async () => {
+      const { data, error } = await supabase!.from('group_tasks').select('id,room_id,created_by,task_key,task_data,created_at,updated_at').in('room_id', roomIds)
+      if (cancelled || error || !data) return
+      const remoteTasks: Task[] = data.map(row => {
+        const room = groupRooms.find(item => item.dbId === row.room_id)
+        const raw = row.task_data && typeof row.task_data === 'object' ? row.task_data as Record<string, unknown> : {}
+        return { ...(raw as unknown as Task), id: Number(row.task_key) || Number(raw.id) || Number(row.id), type: 'งานกลุ่ม', groupRoomId: room?.id }
+      })
+      const remoteIds = new Set(remoteTasks.map(task => task.id))
+      setTasks(current => [...current.filter(task => task.type !== 'งานกลุ่ม' || !remoteIds.has(task.id)), ...remoteTasks])
+    }
+    const channel = supabase.channel(`aevora-group-tasks-${authSession.user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'group_tasks' }, () => { void refreshSharedTasks() })
+      .subscribe()
+    return () => { cancelled = true; void supabase?.removeChannel(channel) }
+  }, [authSession?.user?.id, cloudReady, groupRooms])
+
+  function addPlannedGroupTask(event: FormEvent<HTMLFormElement>, room: GroupRoom) {
+    event.preventDefault()
+    if (room.ownerId !== authSession?.user?.id) {
+      setRoomActionMessage('เฉพาะโฮสต์เท่านั้นที่วางแผนและมอบหมายงานได้')
+      return
+    }
+    const cleanTitle = planTitle.trim()
+    if (!cleanTitle) return
+    if (!planAssignee || !room.members.some(member => member.userId === planAssignee && member.role !== 'owner')) {
+      setRoomActionMessage('เลือกสมาชิกผู้รับผิดชอบก่อนเพิ่มงานค่ะ')
+      return
+    }
+    const dueText = planDue ? new Date(`${planDue}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }) : 'ยังไม่กำหนด'
+    const newTask: Task = {
+      id: Date.now(), title: cleanTitle, subject: planSubject.trim() || 'งานกลุ่ม',
+      type: 'งานกลุ่ม', due: dueText, dueDate: planDue || undefined,
+      description: planDescription.trim(), groupRoomId: room.id, assignedTo: planAssignee,
+      subtasks: [], progress: 0, done: false, workflowStatus: 'planning',
+    }
+    setTasks(current => [...current, newTask])
+    setPlanTitle(''); setPlanSubject(''); setPlanDescription(''); setPlanAssignee(''); setPlanDue('')
+    setRoomActionMessage('เพิ่มหัวข้องานในแผนแล้ว สมาชิกจะเห็นงานเมื่อโฮสต์กดเริ่มงาน')
+  }
+
+  function startRoomWork(room: GroupRoom) {
+    if (room.ownerId !== authSession?.user?.id) return
+    const drafts = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId === room.id && task.workflowStatus === 'planning')
+    if (!drafts.length) {
+      setRoomActionMessage('เพิ่มหัวข้องานและเลือกผู้รับผิดชอบอย่างน้อย 1 งานก่อนเริ่มงานค่ะ')
+      return
+    }
+    const unassigned = drafts.some(task => !task.assignedTo || !room.members.some(member => member.userId === task.assignedTo))
+    if (unassigned) {
+      setRoomActionMessage('มีงานที่ยังไม่ได้มอบหมายให้สมาชิก กรุณาตรวจสอบก่อนเริ่มงาน')
+      return
+    }
+    setTasks(current => current.map(task => task.groupRoomId === room.id && task.workflowStatus === 'planning' ? { ...task, workflowStatus: 'active' } : task))
+    setRoomActionMessage(`เริ่มงานแล้ว! ส่งงานที่มอบหมาย ${drafts.length} งานให้สมาชิกแต่ละคนแล้ว`)
+  }
 
   async function createGroupRoom(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -749,9 +834,9 @@ function App() {
       (filter === 'เสร็จแล้ว' && task.done) || task.type === filter
 
     const matchesNav = activeNav === 'งานกลุ่ม'
-      ? task.type === 'งานกลุ่ม'
+      ? task.type === 'งานกลุ่ม' && (task.workflowStatus !== 'planning' || groupRooms.some(room => room.id === task.groupRoomId && room.ownerId === authSession?.user?.id))
       : activeNav === 'งานของฉัน'
-        ? task.type !== 'งานกลุ่ม' || task.assignedTo === authSession?.user?.id
+        ? task.type !== 'งานกลุ่ม' || (task.assignedTo === authSession?.user?.id && task.workflowStatus !== 'planning')
         : true
 
     return matchesSearch && matchesFilter && matchesNav
@@ -1001,20 +1086,27 @@ function App() {
         {activeNav === 'งานกลุ่ม' && !selectedTask && !showForm && <section className={`panel group-rooms-panel ${selectedRoomId !== null ? 'group-room-detail-shell' : ''}`}>
           {selectedRoomId !== null && groupRooms.some(item => item.id === selectedRoomId) ? (() => {
             const room = groupRooms.find(item => item.id === selectedRoomId)!
-            const roomTasks = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)
-            const doneCount = roomTasks.filter(task => task.done).length
-            const percent = roomTasks.length ? Math.round(doneCount / roomTasks.length * 100) : 0
+            const allRoomTasks = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)
+            const isRoomHost = room.ownerId === authSession?.user?.id
+            const planningTasks = allRoomTasks.filter(task => task.workflowStatus === 'planning')
+            const roomTasks = allRoomTasks.filter(task => task.workflowStatus !== 'planning' || isRoomHost)
+            const activeRoomTasks = allRoomTasks.filter(task => task.workflowStatus !== 'planning')
+            const doneCount = activeRoomTasks.filter(task => task.done).length
+            const percent = activeRoomTasks.length ? Math.round(doneCount / activeRoomTasks.length * 100) : 0
             return <div className="group-room-workspace">
               <button type="button" className="task-back-button" onClick={() => { setSelectedRoomId(null); setRoomActionMessage('') }}>← กลับไปหน้าห้องทั้งหมด</button>
               <header className="group-workspace-hero"><div><span className="eyebrow">AEVORA · TEAM SPACE</span><h2>♧ {room.name}</h2><p>พื้นที่ทำงานรวมของสมาชิกทุกคน</p></div><div className="group-workspace-code"><small>รหัสห้อง</small><strong>{room.code}</strong><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(room.code); setRoomActionMessage('คัดลอกรหัสห้องแล้ว') } catch { setRoomActionMessage(`รหัสห้อง: ${room.code}`) } }}>คัดลอกรหัส</button></div></header>
-              <div className="group-workspace-stats"><article><small>สมาชิก</small><strong>{room.members.length}</strong></article><article><small>งานทั้งหมด</small><strong>{roomTasks.length}</strong></article><article><small>ทำสำเร็จ</small><strong>{doneCount}</strong></article></div>
-              <section className="group-progress-card"><div><h3>ความคืบหน้าของกลุ่ม</h3><strong>{percent}%</strong></div><div className="group-progress-track"><span style={{ width: `${percent}%` }} /></div><small>เสร็จแล้ว {doneCount} จาก {roomTasks.length} งาน</small></section>
+              <div className="group-workspace-stats"><article><small>สมาชิก</small><strong>{room.members.length}</strong></article><article><small>งานที่เริ่มแล้ว</small><strong>{activeRoomTasks.length}</strong></article><article><small>ทำสำเร็จ</small><strong>{doneCount}</strong></article></div>
+              <section className="group-progress-card"><div><h3>ความคืบหน้าของกลุ่ม</h3><strong>{percent}%</strong></div><div className="group-progress-track"><span style={{ width: `${percent}%` }} /></div><small>เสร็จแล้ว {doneCount} จาก {activeRoomTasks.length} งาน</small></section>
               <section className="group-workspace-section"><div className="group-section-heading"><div><h3>👥 สมาชิกในห้อง</h3><p>รายชื่อสมาชิกที่ระบบอนุญาตให้แสดง</p></div></div><div className="group-workspace-members">{room.members.map(member => <span className="group-workspace-member" key={member.userId}><span className="group-member-avatar">{member.role === 'owner' ? '👑' : '👤'}</span><span><strong>{member.userId === authSession?.user?.id ? 'คุณ' : `สมาชิก ${member.userId.slice(0, 8)}`}</strong><small>{member.role === 'owner' ? 'โฮสต์ / เจ้าของห้อง' : 'สมาชิก'}</small></span></span>)}</div><p className="muted group-member-note">หากสมาชิกคนอื่นยังไม่แสดง ต้องใช้ SQL migration ที่แนบมาเพื่อให้สมาชิกในห้องอ่านรายชื่อสมาชิกห้องเดียวกันได้อย่างปลอดภัย</p></section>
-              <section className="group-workspace-section"><div className="group-section-heading"><div><h3>▤ งานของกลุ่ม</h3><p>ดูผู้รับผิดชอบ สถานะ และรายละเอียดของแต่ละงาน</p></div><div className="group-room-header-actions"><button type="button" onClick={() => { const summary = roomTasks.map((task, index) => `${index + 1}. ${task.title} | ผู้รับผิดชอบ: ${task.assignedTo || 'ยังไม่มอบหมาย'} | สถานะ: ${task.done ? 'เสร็จแล้ว' : 'กำลังทำ'} | ${getTaskProgress(task)}%`).join('\n'); const blob = new Blob([`สรุปงานห้อง ${room.name}\n\n${summary || 'ยังไม่มีงาน'}`], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `aevora-room-${room.code}-tasks.txt`; a.click(); URL.revokeObjectURL(url) }}>รวมงาน / ดาวน์โหลดสรุป</button>{room.ownerId === authSession?.user?.id && <button type="button" onClick={() => { setTitle(''); setSubject(''); setDescription(''); setTaskRoomId(room.id); setAssignedTo(''); setType('งานกลุ่ม'); setDue(''); setEditingId(null); setSelectedTaskId(null); setShowForm(true) }}>+ เพิ่มงานและมอบหมาย</button>}</div></div>
-                <div className="group-room-task-list">{roomTasks.length ? roomTasks.map(task => <article className="group-room-task-card" key={task.id}><div className={`group-task-status ${task.done ? 'is-done' : ''}`}>{task.done ? '✓' : '◷'}</div><div className="group-room-task-main"><h4>{task.title}</h4><p>{task.subject || 'ไม่ระบุวิชา'} · กำหนดส่ง {task.due || 'ยังไม่กำหนด'}</p><div className="group-task-assignee">ผู้รับผิดชอบ: <strong>{task.assignedTo ? (task.assignedTo === authSession?.user?.id ? 'คุณ' : `สมาชิก ${task.assignedTo.slice(0, 8)}`) : 'ยังไม่มอบหมาย'}</strong></div><div className="group-progress-track small"><span style={{ width: `${getTaskProgress(task)}%` }} /></div><small>ความคืบหน้า {getTaskProgress(task)}%</small></div><div className="group-room-task-actions"><button type="button" onClick={() => { setSelectedTaskId(task.id); setShowForm(false) }}>ดูงาน</button>{room.ownerId === authSession?.user?.id && <button type="button" onClick={() => startEdit(task)}>แก้ไข / มอบหมาย</button>}<button type="button" onClick={() => { const text = `งาน: ${task.title}\nวิชา/โปรเจกต์: ${task.subject || '-'}\nผู้รับผิดชอบ: ${task.assignedTo || 'ยังไม่มอบหมาย'}\nกำหนดส่ง: ${task.due || '-'}\nสถานะ: ${task.done ? 'เสร็จแล้ว' : 'กำลังทำ'}\nความคืบหน้า: ${getTaskProgress(task)}%\nรายละเอียด: ${task.description || '-'}`; const blob = new Blob([text], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `aevora-task-${task.id}.txt`; a.click(); URL.revokeObjectURL(url) }}>ดาวน์โหลด</button></div>{(room.ownerId === authSession?.user?.id || task.assignedTo === authSession?.user?.id) && <><div className="group-private-comment-history">{privateComments.filter(comment => comment.task_key === String(task.id) && (comment.author_id === authSession?.user?.id || comment.recipient_id === authSession?.user?.id)).map(comment => <p key={comment.id}><strong>{comment.author_id === authSession?.user?.id ? 'คุณ' : comment.author_id === room.ownerId ? 'โฮสต์' : 'ผู้รับผิดชอบ'}:</strong> {comment.body}<small>{new Date(comment.created_at).toLocaleString('th-TH')}</small></p>)}</div><form className="group-private-comment" onSubmit={async event => { event.preventDefault(); const body = (privateCommentByTask[String(task.id)] || '').trim(); if (!body || !supabase || !authSession?.user?.id || !room.dbId) return; const recipient = room.ownerId === authSession.user.id ? (task.assignedTo || '') : room.ownerId; if (!recipient) { setRoomActionMessage('ต้องมอบหมายงานให้สมาชิกก่อน จึงจะส่งคอมเมนต์ส่วนตัวได้'); return }; const { data: privateComment, error } = await supabase.from('group_task_private_comments').insert({ room_id: room.dbId, task_key: String(task.id), author_id: authSession.user.id, recipient_id: recipient, body }).select('id,task_key,author_id,recipient_id,body,created_at').single(); if (error) { setRoomActionMessage(`ส่งคอมเมนต์ส่วนตัวไม่สำเร็จ: ${error.message}`); return }; setPrivateComments(current => [...current, privateComment as typeof current[number]]); setPrivateCommentByTask(current => ({ ...current, [String(task.id)]: '' })); setRoomActionMessage('ส่งคอมเมนต์ส่วนตัวแล้ว') }}><label>💬 คอมเมนต์ส่วนตัวถึง {room.ownerId === authSession?.user?.id ? 'ผู้รับผิดชอบ' : 'โฮสต์'}</label><div><input value={privateCommentByTask[String(task.id)] || ''} onChange={event => setPrivateCommentByTask(current => ({ ...current, [String(task.id)]: event.target.value }))} placeholder="ข้อความระหว่างโฮสต์กับผู้รับผิดชอบงาน" maxLength={1000}/><button type="submit">ส่ง</button></div></form></>}</article>) : <div className="group-room-empty"><strong>ยังไม่มีงานในห้องนี้</strong><p>กด “เพิ่มงานในห้อง” เพื่อเริ่มแบ่งงานให้สมาชิก</p></div>}</div>
+              <section className="group-workspace-section group-task-planner-section"><div className="group-section-heading"><div><span className="eyebrow">TEAM WORKFLOW</span><h3>🧩 วางแผนและแบ่งงาน</h3><p>โฮสต์เตรียมหัวข้องานทั้งหมดก่อน แล้วกดเริ่มงานเพื่อส่งงานให้สมาชิกพร้อมกัน</p></div><span className={`group-workflow-badge ${activeRoomTasks.length ? 'is-active' : 'is-planning'}`}>{activeRoomTasks.length ? 'กำลังดำเนินงาน' : 'อยู่ในช่วงวางแผน'}</span></div>
+                {isRoomHost && <form className="group-planner-form" onSubmit={event => addPlannedGroupTask(event, room)}><div className="group-planner-form-heading"><span>＋</span><div><strong>เพิ่มหัวข้องานในแผน</strong><small>เพิ่มได้หลายงานก่อนกดเริ่มงาน</small></div></div><div className="group-planner-fields"><label>หัวข้องาน<input value={planTitle} onChange={event => setPlanTitle(event.target.value)} placeholder="เช่น ค้นคว้าข้อมูลและแหล่งอ้างอิง" maxLength={120} required /></label><label>วิชา / โปรเจกต์<input value={planSubject} onChange={event => setPlanSubject(event.target.value)} placeholder="ชื่อวิชาหรือโปรเจกต์" maxLength={100} /></label><label>ผู้รับผิดชอบ<select value={planAssignee} onChange={event => setPlanAssignee(event.target.value)} required><option value="">เลือกสมาชิก</option>{room.members.filter(member => member.role !== 'owner').map(member => <option key={member.userId} value={member.userId}>สมาชิก {member.userId.slice(0, 8)}</option>)}</select></label><label>กำหนดส่ง<input type="date" value={planDue} onChange={event => setPlanDue(event.target.value)} /></label><label className="group-planner-description">รายละเอียด / หัวข้อย่อย<textarea value={planDescription} onChange={event => setPlanDescription(event.target.value)} placeholder="เขียนสิ่งที่ต้องทำ ขอบเขตงาน หรือหัวข้อย่อย..." rows={3} maxLength={2000} /></label></div><button type="submit" className="group-planner-add-button" disabled={room.members.filter(member => member.role !== 'owner').length === 0}>เพิ่มลงแผนงาน</button></form>}
+                {isRoomHost && planningTasks.length > 0 && <div className="group-planning-list"><div className="group-planning-list-heading"><strong>งานที่เตรียมไว้ ({planningTasks.length})</strong><span>สมาชิกยังไม่เห็นจนกว่าจะเริ่มงาน</span></div>{planningTasks.map((task, index) => <article className="group-planning-item" key={task.id}><span className="group-planning-number">{index + 1}</span><div><strong>{task.title}</strong><p>{task.description || task.subject} · ผู้รับผิดชอบ: สมาชิก {(task.assignedTo || '').slice(0, 8)} · ส่ง {task.due}</p></div><button type="button" onClick={async () => { if (supabase && room.dbId) { const { error } = await supabase.from('group_tasks').delete().eq('room_id', room.dbId).eq('task_key', String(task.id)); if (error) { setRoomActionMessage(`นำงานออกไม่สำเร็จ: ${error.message}`); return } }; setTasks(current => current.filter(item => item.id !== task.id)); setRoomActionMessage('นำงานออกจากแผนแล้ว') }}>นำออก</button></article>)}<button type="button" className="group-start-work-button" onClick={() => startRoomWork(room)}>▶ เริ่มงานและส่งงานให้สมาชิก</button></div>}
+                <div className="group-section-heading group-live-tasks-heading"><div><h3>▤ งานของกลุ่ม</h3><p>ทุกคนดูความคืบหน้าของงานทั้งหมดได้ แต่คอมเมนต์ส่วนตัวเห็นเฉพาะโฮสต์กับผู้รับงาน</p></div><div className="group-room-header-actions"><button type="button" onClick={() => { const summary = roomTasks.map((task, index) => `${index + 1}. ${task.title} | ผู้รับผิดชอบ: ${task.assignedTo || 'ยังไม่มอบหมาย'} | สถานะ: ${task.done ? 'เสร็จแล้ว' : 'กำลังทำ'} | ${getTaskProgress(task)}%`).join('\n'); const blob = new Blob([`สรุปงานห้อง ${room.name}\n\n${summary || 'ยังไม่มีงาน'}`], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `aevora-room-${room.code}-tasks.txt`; a.click(); URL.revokeObjectURL(url) }}>รวมงาน / ดาวน์โหลดสรุป</button></div></div>
+                <div className="group-room-task-list">{roomTasks.length ? roomTasks.map(task => <article className="group-room-task-card" key={task.id}><div className={`group-task-status ${task.done ? 'is-done' : ''}`}>{task.done ? '✓' : '◷'}</div><div className="group-room-task-main"><h4>{task.title}</h4><p>{task.subject || 'ไม่ระบุวิชา'} · กำหนดส่ง {task.due || 'ยังไม่กำหนด'} {task.workflowStatus === 'planning' ? '· รอเริ่มงาน' : ''}</p><div className="group-task-assignee">ผู้รับผิดชอบ: <strong>{task.assignedTo ? (task.assignedTo === authSession?.user?.id ? 'คุณ' : `สมาชิก ${task.assignedTo.slice(0, 8)}`) : 'ยังไม่มอบหมาย'}</strong></div><div className="group-progress-track small"><span style={{ width: `${getTaskProgress(task)}%` }} /></div><small>ความคืบหน้า {getTaskProgress(task)}%</small></div><div className="group-room-task-actions"><button type="button" onClick={() => { setSelectedTaskId(task.id); setShowForm(false) }}>ดูงาน</button>{room.ownerId === authSession?.user?.id && <button type="button" onClick={() => startEdit(task)}>แก้ไข / มอบหมาย</button>}<button type="button" onClick={() => { const text = `งาน: ${task.title}\nวิชา/โปรเจกต์: ${task.subject || '-'}\nผู้รับผิดชอบ: ${task.assignedTo || 'ยังไม่มอบหมาย'}\nกำหนดส่ง: ${task.due || '-'}\nสถานะ: ${task.done ? 'เสร็จแล้ว' : 'กำลังทำ'}\nความคืบหน้า: ${getTaskProgress(task)}%\nรายละเอียด: ${task.description || '-'}`; const blob = new Blob([text], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `aevora-task-${task.id}.txt`; a.click(); URL.revokeObjectURL(url) }}>ดาวน์โหลด</button></div>{(room.ownerId === authSession?.user?.id || task.assignedTo === authSession?.user?.id) && <><div className="group-private-comment-history">{privateComments.filter(comment => comment.task_key === String(task.id) && (comment.author_id === authSession?.user?.id || comment.recipient_id === authSession?.user?.id)).map(comment => <p key={comment.id}><strong>{comment.author_id === authSession?.user?.id ? 'คุณ' : comment.author_id === room.ownerId ? 'โฮสต์' : 'ผู้รับผิดชอบ'}:</strong> {comment.body}<small>{new Date(comment.created_at).toLocaleString('th-TH')}</small></p>)}</div><form className="group-private-comment" onSubmit={async event => { event.preventDefault(); const body = (privateCommentByTask[String(task.id)] || '').trim(); if (!body || !supabase || !authSession?.user?.id || !room.dbId) return; const recipient = room.ownerId === authSession.user.id ? (task.assignedTo || '') : room.ownerId; if (!recipient) { setRoomActionMessage('ต้องมอบหมายงานให้สมาชิกก่อน จึงจะส่งคอมเมนต์ส่วนตัวได้'); return }; const { data: privateComment, error } = await supabase.from('group_task_private_comments').insert({ room_id: room.dbId, task_key: String(task.id), author_id: authSession.user.id, recipient_id: recipient, body }).select('id,task_key,author_id,recipient_id,body,created_at').single(); if (error) { setRoomActionMessage(`ส่งคอมเมนต์ส่วนตัวไม่สำเร็จ: ${error.message}`); return }; setPrivateComments(current => [...current, privateComment as typeof current[number]]); setPrivateCommentByTask(current => ({ ...current, [String(task.id)]: '' })); setRoomActionMessage('ส่งคอมเมนต์ส่วนตัวแล้ว') }}><label>💬 คอมเมนต์ส่วนตัวถึง {room.ownerId === authSession?.user?.id ? 'ผู้รับผิดชอบ' : 'โฮสต์'}</label><div><input value={privateCommentByTask[String(task.id)] || ''} onChange={event => setPrivateCommentByTask(current => ({ ...current, [String(task.id)]: event.target.value }))} placeholder="ข้อความระหว่างโฮสต์กับผู้รับผิดชอบงาน" maxLength={1000}/><button type="submit">ส่ง</button></div></form></>}</article>) : <div className="group-room-empty"><strong>ยังไม่มีงานที่เริ่มแล้ว</strong><p>{isRoomHost ? 'เพิ่มหัวข้องานในแผนด้านบน แล้วกดเริ่มงานเมื่อพร้อม' : 'รอโฮสต์เตรียมงานและกดเริ่มงานก่อนนะ'}</p></div>}</div>
               </section>
               <div className="group-workspace-columns"><section className="group-workspace-section"><div className="group-section-heading"><div><h3>💬 คอมเมนต์รวมของห้อง</h3><p>ทุกคนในห้องร่วมพูดคุยได้</p></div></div><div className="group-room-comments">{roomComments.length ? roomComments.map(comment => <article key={comment.id}><strong>{comment.user_id === authSession?.user?.id ? 'คุณ' : `สมาชิก ${comment.user_id.slice(0, 8)}`}</strong><p>{comment.body}</p><small>{new Date(comment.created_at).toLocaleString('th-TH')}</small></article>) : <p className="muted">ยังไม่มีข้อความ เริ่มคุยกันได้เลย</p>}</div><form className="group-room-comment-form" onSubmit={postRoomComment}><input value={roomCommentText} onChange={event => setRoomCommentText(event.target.value)} placeholder="เขียนข้อความถึงทุกคนในห้อง..." maxLength={2000} required/><button type="submit">ส่งข้อความ</button></form></section>
-                <section className="group-workspace-section group-help-card"><div className="group-section-heading"><div><h3>🆘 ขอความช่วยเหลือ</h3><p>ส่งข้อความให้โฮสต์ทราบว่าต้องการความช่วยเหลือเรื่องใด</p></div></div><form onSubmit={requestRoomHelp}><textarea value={roomHelpText} onChange={event => setRoomHelpText(event.target.value)} placeholder="เช่น ยังไม่เข้าใจส่วนที่ได้รับมอบหมาย..." rows={3} maxLength={1000} required/><button type="submit">ส่งคำขอความช่วยเหลือ</button></form></section></div>
+                <section className="group-workspace-section group-help-card"><div className="group-section-heading"><div><h3>🆘 ขอความช่วยเหลือ</h3><p>ส่งข้อความให้โฮสต์ทราบว่าต้องการความช่วยเหลือเรื่องใด</p></div></div><form onSubmit={requestRoomHelp}><textarea value={roomHelpText} onChange={event => setRoomHelpText(event.target.value)} placeholder="เช่น ยังไม่เข้าใจส่วนที่ได้รับมอบหมาย..." rows={3} maxLength={1000} required/><button type="submit">ส่งคำขอความช่วยเหลือ</button></form>{isRoomHost && <div className="group-help-inbox"><strong>กล่องคำขอความช่วยเหลือ ({roomHelpRequests.filter(item => item.status === 'open').length})</strong>{roomHelpRequests.length ? roomHelpRequests.map(item => <article key={item.id}><p>{item.message}</p><small>สมาชิก {item.user_id.slice(0, 8)} · {new Date(item.created_at).toLocaleString('th-TH')} · {item.status === 'open' ? 'รอช่วยเหลือ' : 'แก้ไขแล้ว'}</small></article>) : <p className="muted">ยังไม่มีคำขอความช่วยเหลือ</p>}</div>}</section></div>
               {roomActionMessage && <p className="task-inline-message" role="status">{roomActionMessage}</p>}
             </div>
           })() : <>

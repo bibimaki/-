@@ -498,7 +498,7 @@ function App() {
       setGroupRoomMessage('สร้างห้องสำเร็จแล้ว คัดลอกลิงก์เพื่อเชิญเพื่อนได้เลย')
       const { data: members } = await supabase.rpc('get_group_room_members', { p_room_id: room.id })
       const memberList = (members ?? []) as { user_id: string; role: string }[]
-      setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: memberList.map((member) => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
+      setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: memberList.map((member: { user_id: string; role: string }) => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
     } catch (error) {
       console.error('สร้างห้องงานกลุ่มไม่สำเร็จ:', error)
       setGroupRoomMessage(error instanceof Error ? `สร้างห้องไม่สำเร็จ: ${error.message}` : 'สร้างห้องไม่สำเร็จ กรุณาตรวจสอบ RLS policies ใน Supabase')

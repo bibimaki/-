@@ -3323,3 +3323,57 @@ body {
   background-repeat: no-repeat;
   background-attachment: fixed;
 }
+.stat-icon-float {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  margin-bottom: 8px;
+}
+
+.stat-icon-float img {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
+  image-rendering: auto;
+  filter: drop-shadow(0 4px 6px rgba(115, 65, 170, 0.2));
+  animation: stat-icon-float 3s ease-in-out infinite;
+}
+
+@keyframes stat-icon-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-icon-float img {
+    animation: none;
+  }
+}.welcome-title-wrap {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+}
+
+.welcome-title {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+}
+
+.welcome-tree {
+  position: absolute;
+  z-index: 0;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  right: -32px;
+  top: -20px;
+  opacity: 0.9;
+  pointer-events: none;
+}

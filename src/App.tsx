@@ -341,7 +341,28 @@ function App() {
       }
     }
     void loadGroupRooms()
-    return () => { cancelled = true }
+
+    // Keep the room list and member list in sync across everyone currently online.
+    // Realtime events trigger a fresh database read; RLS still controls what each
+    // signed-in user is allowed to see.
+    const roomSyncChannel = supabase && authSession?.user?.id && cloudReady
+      ? supabase
+          .channel(`aevora-group-sync-${authSession.user.id}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members' }, () => {
+            void loadGroupRooms()
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'group_rooms' }, () => {
+            void loadGroupRooms()
+          })
+          .subscribe()
+      : null
+
+    return () => {
+      cancelled = true
+      if (roomSyncChannel && supabase) {
+        void supabase.removeChannel(roomSyncChannel)
+      }
+    }
   }, [authSession?.user?.id, cloudReady])
 
   // Load shared group tasks only after the signed-in user's rooms are available.

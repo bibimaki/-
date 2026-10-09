@@ -269,7 +269,13 @@ function App() {
   const [joinRoomCode, setJoinRoomCode] = useState('')
   const [groupRoomBusy, setGroupRoomBusy] = useState(false)
   const [groupRoomMessage, setGroupRoomMessage] = useState('')
-  const [selectedRoomId] = useState<number | null>(null)
+  const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null)
+  const [roomCommentText, setRoomCommentText] = useState('')
+  const [roomComments, setRoomComments] = useState<{ id: string; user_id: string; body: string; created_at: string }[]>([])
+  const [roomHelpText, setRoomHelpText] = useState('')
+  const [roomActionMessage, setRoomActionMessage] = useState('')
+  const [privateCommentByTask, setPrivateCommentByTask] = useState<Record<string, string>>({})
+  const [privateComments, setPrivateComments] = useState<{ id: string; task_key: string; author_id: string; recipient_id: string; body: string; created_at: string }[]>([])
   const [selectedInviteRoomId, setSelectedInviteRoomId] = useState<number | null>(null)
   const [inviteFormat, setInviteFormat] = useState<'link' | 'code' | 'message'>('message')
   useEffect(() => {
@@ -306,34 +312,22 @@ function App() {
       if (!supabase || !authSession?.user?.id || !cloudReady) return
       const userId = authSession.user.id
       try {
-        const { data: memberships, error: memberError } = await supabase
-          .from('group_members')
-          .select('room_id,user_id,role')
-          .eq('user_id', userId)
-        if (memberError) throw memberError
-        const joinedRoomIds = (memberships || []).map(row => row.room_id as string)
-        let roomQuery = supabase.from('group_rooms').select('id,owner_id,name,invite_code,created_at')
-        if (joinedRoomIds.length) {
-          roomQuery = roomQuery.or(`owner_id.eq.${userId},id.in.(${joinedRoomIds.join(',')})`)
-        } else {
-          roomQuery = roomQuery.eq('owner_id', userId)
-        }
-        const { data: rooms, error: roomError } = await roomQuery.order('created_at', { ascending: false })
+        const { data: rooms, error: roomError } = await supabase.rpc('get_my_group_rooms')
         if (roomError) throw roomError
-        const roomIds = (rooms || []).map(room => room.id as string)
-        let allMemberships: { room_id: string; user_id: string; role: string }[] = []
-        if (roomIds.length) {
-          const { data, error } = await supabase.from('group_members').select('room_id,user_id,role').in('room_id', roomIds)
+        const roomsList = (rooms || []) as { id: string; owner_id: string; name: string; invite_code: string; created_at: string }[]
+        const allMemberships: { room_id: string; user_id: string; role: string }[] = []
+        for (const room of roomsList) {
+          const { data, error } = await supabase.rpc('get_group_room_members', { p_room_id: room.id })
           if (error) throw error
-          allMemberships = (data || []) as typeof allMemberships
+          for (const member of data || []) allMemberships.push({ room_id: room.id, user_id: member.user_id, role: member.role })
         }
         if (cancelled) return
-        setGroupRooms((rooms || []).map((room, index) => ({
+        setGroupRooms(roomsList.map((room, index) => ({
           id: index + 1,
-          dbId: room.id as string,
-          ownerId: room.owner_id as string,
-          name: room.name as string,
-          code: room.invite_code as string,
+          dbId: room.id,
+          ownerId: room.owner_id,
+          name: room.name,
+          code: room.invite_code,
           members: allMemberships.filter(member => member.room_id === room.id).map(member => ({ userId: member.user_id, role: member.role })),
         })))
       } catch (error) {
@@ -345,6 +339,58 @@ function App() {
     void loadGroupRooms()
     return () => { cancelled = true }
   }, [authSession?.user?.id, cloudReady])
+
+  // Load room-wide conversation when a room is opened. The migration file creates the table and membership-only RLS policies.
+  useEffect(() => {
+    let cancelled = false
+    async function loadRoomComments() {
+      const room = groupRooms.find(item => item.id === selectedRoomId)
+      if (!room?.dbId || !supabase || !authSession?.user?.id) { setRoomComments([]); return }
+      const { data, error } = await supabase.from('group_room_comments').select('id,user_id,body,created_at').eq('room_id', room.dbId).order('created_at', { ascending: true })
+      if (cancelled) return
+      if (error) { setRoomComments([]); setRoomActionMessage(`โหลดคอมเมนต์ไม่สำเร็จ: ${error.message}`); return }
+      setRoomComments((data || []) as typeof roomComments)
+    }
+    void loadRoomComments()
+    return () => { cancelled = true }
+  }, [selectedRoomId, groupRooms, authSession?.user?.id])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadPrivateComments() {
+      const room = groupRooms.find(item => item.id === selectedRoomId)
+      if (!room?.dbId || !supabase || !authSession?.user?.id) { setPrivateComments([]); return }
+      const { data, error } = await supabase.from('group_task_private_comments').select('id,task_key,author_id,recipient_id,body,created_at').eq('room_id', room.dbId).order('created_at', { ascending: true })
+      if (cancelled) return
+      if (error) { setPrivateComments([]); return }
+      setPrivateComments((data || []) as typeof privateComments)
+    }
+    void loadPrivateComments()
+    return () => { cancelled = true }
+  }, [selectedRoomId, groupRooms, authSession?.user?.id])
+
+  async function postRoomComment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const room = groupRooms.find(item => item.id === selectedRoomId)
+    const body = roomCommentText.trim()
+    if (!room?.dbId || !body || !supabase || !authSession?.user?.id) return
+    const { data, error } = await supabase.from('group_room_comments').insert({ room_id: room.dbId, user_id: authSession.user.id, body }).select('id,user_id,body,created_at').single()
+    if (error) { setRoomActionMessage(`ส่งคอมเมนต์ไม่สำเร็จ: ${error.message}`); return }
+    setRoomComments(current => [...current, data as typeof current[number]])
+    setRoomCommentText('')
+    setRoomActionMessage('ส่งข้อความแล้ว')
+  }
+
+  async function requestRoomHelp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const room = groupRooms.find(item => item.id === selectedRoomId)
+    const message = roomHelpText.trim()
+    if (!room?.dbId || !message || !supabase || !authSession?.user?.id) return
+    const { error } = await supabase.from('group_help_requests').insert({ room_id: room.dbId, user_id: authSession.user.id, message })
+    if (error) { setRoomActionMessage(`ส่งคำขอความช่วยเหลือไม่สำเร็จ: ${error.message}`); return }
+    setRoomHelpText('')
+    setRoomActionMessage('ส่งคำขอความช่วยเหลือให้โฮสต์แล้ว')
+  }
 
   // Load shared group tasks only after the signed-in user's rooms are available.
   useEffect(() => {
@@ -451,7 +497,7 @@ function App() {
       }
       setNewRoomName('')
       setGroupRoomMessage('สร้างห้องสำเร็จแล้ว คัดลอกลิงก์เพื่อเชิญเพื่อนได้เลย')
-      const { data: members } = await supabase.from('group_members').select('room_id,user_id,role').eq('room_id', room.id)
+      const { data: members } = await supabase.rpc('get_group_room_members', { p_room_id: room.id })
       setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: (members || []).map(member => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
     } catch (error) {
       console.error('สร้างห้องงานกลุ่มไม่สำเร็จ:', error)
@@ -484,13 +530,15 @@ function App() {
       setGroupRoomMessage(`เข้าร่วมห้อง “${room.name}” สำเร็จแล้ว`)
       // RLS may only allow a member to read their own membership row. Do not
       // query every member here; that query is not needed to confirm joining.
+      const { data: members, error: membersError } = await supabase.rpc('get_group_room_members', { p_room_id: room.id })
+      if (membersError) throw membersError
       setGroupRooms(current => [{
         id: Date.now(),
         dbId: room.id,
         ownerId: room.owner_id,
         name: room.name,
         code: room.invite_code,
-        members: [{ userId: authSession.user.id, role: 'member' }],
+        members: (members || []).map((member: { user_id: string; role: string }) => ({ userId: member.user_id, role: member.role })),
       }, ...current.filter(item => item.dbId !== room.id)])
     } catch (error) {
       console.error('เข้าร่วมห้องงานกลุ่มไม่สำเร็จ:', error)
@@ -934,7 +982,26 @@ function App() {
 
         </>}
 
-        {activeNav === 'งานกลุ่ม' && !selectedTask && !showForm && <section className="panel group-rooms-panel">
+        {activeNav === 'งานกลุ่ม' && !selectedTask && !showForm && <section className={`panel group-rooms-panel ${selectedRoomId !== null ? 'group-room-detail-shell' : ''}`}>
+          {selectedRoomId !== null && groupRooms.some(item => item.id === selectedRoomId) ? (() => {
+            const room = groupRooms.find(item => item.id === selectedRoomId)!
+            const roomTasks = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)
+            const doneCount = roomTasks.filter(task => task.done).length
+            const percent = roomTasks.length ? Math.round(doneCount / roomTasks.length * 100) : 0
+            return <div className="group-room-workspace">
+              <button type="button" className="task-back-button" onClick={() => { setSelectedRoomId(null); setRoomActionMessage('') }}>← กลับไปหน้าห้องทั้งหมด</button>
+              <header className="group-workspace-hero"><div><span className="eyebrow">AEVORA · TEAM SPACE</span><h2>♧ {room.name}</h2><p>พื้นที่ทำงานรวมของสมาชิกทุกคน</p></div><div className="group-workspace-code"><small>รหัสห้อง</small><strong>{room.code}</strong><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(room.code); setRoomActionMessage('คัดลอกรหัสห้องแล้ว') } catch { setRoomActionMessage(`รหัสห้อง: ${room.code}`) } }}>คัดลอกรหัส</button></div></header>
+              <div className="group-workspace-stats"><article><small>สมาชิก</small><strong>{room.members.length}</strong></article><article><small>งานทั้งหมด</small><strong>{roomTasks.length}</strong></article><article><small>ทำสำเร็จ</small><strong>{doneCount}</strong></article></div>
+              <section className="group-progress-card"><div><h3>ความคืบหน้าของกลุ่ม</h3><strong>{percent}%</strong></div><div className="group-progress-track"><span style={{ width: `${percent}%` }} /></div><small>เสร็จแล้ว {doneCount} จาก {roomTasks.length} งาน</small></section>
+              <section className="group-workspace-section"><div className="group-section-heading"><div><h3>👥 สมาชิกในห้อง</h3><p>รายชื่อสมาชิกที่ระบบอนุญาตให้แสดง</p></div></div><div className="group-workspace-members">{room.members.map(member => <span className="group-workspace-member" key={member.userId}><span className="group-member-avatar">{member.role === 'owner' ? '👑' : '👤'}</span><span><strong>{member.userId === authSession?.user?.id ? 'คุณ' : `สมาชิก ${member.userId.slice(0, 8)}`}</strong><small>{member.role === 'owner' ? 'โฮสต์ / เจ้าของห้อง' : 'สมาชิก'}</small></span></span>)}</div><p className="muted group-member-note">หากสมาชิกคนอื่นยังไม่แสดง ต้องใช้ SQL migration ที่แนบมาเพื่อให้สมาชิกในห้องอ่านรายชื่อสมาชิกห้องเดียวกันได้อย่างปลอดภัย</p></section>
+              <section className="group-workspace-section"><div className="group-section-heading"><div><h3>▤ งานของกลุ่ม</h3><p>ดูผู้รับผิดชอบ สถานะ และรายละเอียดของแต่ละงาน</p></div><div className="group-room-header-actions"><button type="button" onClick={() => { const summary = roomTasks.map((task, index) => `${index + 1}. ${task.title} | ผู้รับผิดชอบ: ${task.assignedTo || 'ยังไม่มอบหมาย'} | สถานะ: ${task.done ? 'เสร็จแล้ว' : 'กำลังทำ'} | ${getTaskProgress(task)}%`).join('\n'); const blob = new Blob([`สรุปงานห้อง ${room.name}\n\n${summary || 'ยังไม่มีงาน'}`], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `aevora-room-${room.code}-tasks.txt`; a.click(); URL.revokeObjectURL(url) }}>รวมงาน / ดาวน์โหลดสรุป</button><button type="button" onClick={() => { setTitle(''); setSubject(''); setDescription(''); setTaskRoomId(room.id); setAssignedTo(''); setType('งานกลุ่ม'); setDue(''); setEditingId(null); setSelectedTaskId(null); setShowForm(true) }}>+ เพิ่มงานในห้อง</button></div></div>
+                <div className="group-room-task-list">{roomTasks.length ? roomTasks.map(task => <article className="group-room-task-card" key={task.id}><div className={`group-task-status ${task.done ? 'is-done' : ''}`}>{task.done ? '✓' : '◷'}</div><div className="group-room-task-main"><h4>{task.title}</h4><p>{task.subject || 'ไม่ระบุวิชา'} · กำหนดส่ง {task.due || 'ยังไม่กำหนด'}</p><div className="group-task-assignee">ผู้รับผิดชอบ: <strong>{task.assignedTo ? (task.assignedTo === authSession?.user?.id ? 'คุณ' : `สมาชิก ${task.assignedTo.slice(0, 8)}`) : 'ยังไม่มอบหมาย'}</strong></div><div className="group-progress-track small"><span style={{ width: `${getTaskProgress(task)}%` }} /></div><small>ความคืบหน้า {getTaskProgress(task)}%</small></div><div className="group-room-task-actions"><button type="button" onClick={() => { setSelectedTaskId(task.id); setShowForm(false) }}>ดูงาน</button><button type="button" onClick={() => startEdit(task)}>แก้ไข</button><button type="button" onClick={() => { const text = `งาน: ${task.title}\nวิชา/โปรเจกต์: ${task.subject || '-'}\nผู้รับผิดชอบ: ${task.assignedTo || 'ยังไม่มอบหมาย'}\nกำหนดส่ง: ${task.due || '-'}\nสถานะ: ${task.done ? 'เสร็จแล้ว' : 'กำลังทำ'}\nความคืบหน้า: ${getTaskProgress(task)}%\nรายละเอียด: ${task.description || '-'}`; const blob = new Blob([text], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `aevora-task-${task.id}.txt`; a.click(); URL.revokeObjectURL(url) }}>ดาวน์โหลด</button></div><div className="group-private-comment-history">{privateComments.filter(comment => comment.task_key === String(task.id) && (comment.author_id === authSession?.user?.id || comment.recipient_id === authSession?.user?.id)).map(comment => <p key={comment.id}><strong>{comment.author_id === authSession?.user?.id ? 'คุณ' : 'โฮสต์/สมาชิก'}:</strong> {comment.body}<small>{new Date(comment.created_at).toLocaleString('th-TH')}</small></p>)}</div><form className="group-private-comment" onSubmit={async event => { event.preventDefault(); const body = (privateCommentByTask[String(task.id)] || '').trim(); if (!body || !supabase || !authSession?.user?.id || !room.dbId) return; const recipient = room.ownerId === authSession.user.id ? (task.assignedTo || '') : room.ownerId; if (!recipient) { setRoomActionMessage('ต้องมอบหมายงานให้สมาชิกก่อน จึงจะส่งคอมเมนต์ส่วนตัวได้'); return }; const { data: privateComment, error } = await supabase.from('group_task_private_comments').insert({ room_id: room.dbId, task_key: String(task.id), author_id: authSession.user.id, recipient_id: recipient, body }).select('id,task_key,author_id,recipient_id,body,created_at').single(); if (error) { setRoomActionMessage(`ส่งคอมเมนต์ส่วนตัวไม่สำเร็จ: ${error.message}`); return }; setPrivateComments(current => [...current, privateComment as typeof current[number]]); setPrivateCommentByTask(current => ({ ...current, [String(task.id)]: '' })); setRoomActionMessage('ส่งคอมเมนต์ส่วนตัวแล้ว') }}><label>💬 คอมเมนต์ส่วนตัวถึง {room.ownerId === authSession?.user?.id ? 'ผู้รับผิดชอบ' : 'โฮสต์'}</label><div><input value={privateCommentByTask[String(task.id)] || ''} onChange={event => setPrivateCommentByTask(current => ({ ...current, [String(task.id)]: event.target.value }))} placeholder="ข้อความระหว่างโฮสต์กับผู้รับผิดชอบงาน" maxLength={1000}/><button type="submit">ส่ง</button></div></form></article>) : <div className="group-room-empty"><strong>ยังไม่มีงานในห้องนี้</strong><p>กด “เพิ่มงานในห้อง” เพื่อเริ่มแบ่งงานให้สมาชิก</p></div>}</div>
+              </section>
+              <div className="group-workspace-columns"><section className="group-workspace-section"><div className="group-section-heading"><div><h3>💬 คอมเมนต์รวมของห้อง</h3><p>ทุกคนในห้องร่วมพูดคุยได้</p></div></div><div className="group-room-comments">{roomComments.length ? roomComments.map(comment => <article key={comment.id}><strong>{comment.user_id === authSession?.user?.id ? 'คุณ' : `สมาชิก ${comment.user_id.slice(0, 8)}`}</strong><p>{comment.body}</p><small>{new Date(comment.created_at).toLocaleString('th-TH')}</small></article>) : <p className="muted">ยังไม่มีข้อความ เริ่มคุยกันได้เลย</p>}</div><form className="group-room-comment-form" onSubmit={postRoomComment}><input value={roomCommentText} onChange={event => setRoomCommentText(event.target.value)} placeholder="เขียนข้อความถึงทุกคนในห้อง..." maxLength={2000} required/><button type="submit">ส่งข้อความ</button></form></section>
+                <section className="group-workspace-section group-help-card"><div className="group-section-heading"><div><h3>🆘 ขอความช่วยเหลือ</h3><p>ส่งข้อความให้โฮสต์ทราบว่าต้องการความช่วยเหลือเรื่องใด</p></div></div><form onSubmit={requestRoomHelp}><textarea value={roomHelpText} onChange={event => setRoomHelpText(event.target.value)} placeholder="เช่น ยังไม่เข้าใจส่วนที่ได้รับมอบหมาย..." rows={3} maxLength={1000} required/><button type="submit">ส่งคำขอความช่วยเหลือ</button></form></section></div>
+              {roomActionMessage && <p className="task-inline-message" role="status">{roomActionMessage}</p>}
+            </div>
+          })() : <>
           <div className="panel-heading"><div><h2>♧ ห้องงานกลุ่ม</h2><p className="muted">สร้างห้องด้วยบัญชีของคุณ หรือเข้าร่วมด้วยรหัสที่เพื่อนส่งให้</p></div></div>
           <form className="group-room-create" onSubmit={createGroupRoom}>
             <input value={newRoomName} onChange={event => setNewRoomName(event.target.value)} placeholder="ตั้งชื่อห้อง เช่น โปรเจกต์วิทยาศาสตร์" maxLength={80} aria-label="ชื่อห้องงานกลุ่ม" required />
@@ -951,6 +1018,7 @@ function App() {
               <h3>{room.name}</h3>
               <p className="group-room-code">รหัสห้อง <strong>{room.code}</strong><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(room.code); setGroupRoomMessage('คัดลอกรหัสห้องแล้ว') } catch { setGroupRoomMessage(`รหัสห้อง: ${room.code}`) } }}>คัดลอกรหัส</button></p>
               <div className="group-room-invite-action"><button type="button" onClick={() => { setSelectedInviteRoomId(room.id); setInviteFormat('message'); setGroupRoomMessage(''); setActiveNav('เชิญเพื่อน') }}>✉ จัดการคำเชิญเพื่อน</button></div>
+              <button type="button" className="group-room-open-button" onClick={() => { setSelectedRoomId(room.id); setRoomActionMessage('') }}>เปิดห้องทำงาน →</button>
               <div className="group-room-members"><strong>สมาชิกที่เข้าร่วมจริง</strong><div>{room.members.map(member => <span className="group-member-chip" key={`${room.dbId}-${member.userId}`}>👤 {member.userId === authSession?.user?.id ? 'คุณ' : `สมาชิก ${member.userId.slice(0, 6)}`} {member.role === 'owner' ? '(เจ้าของห้อง)' : ''}</span>)}</div></div>
               {room.ownerId === authSession?.user?.id && <button type="button" className="group-room-delete" onClick={async () => {
                 if (!window.confirm(`ต้องการลบห้อง “${room.name}” ใช่ไหม?`)) return
@@ -966,6 +1034,7 @@ function App() {
               }}>ลบห้อง</button>}
             </article>
           })}</div>}
+          </>}
         </section>}
 
         {activeNav === 'เชิญเพื่อน' && <section className="panel invite-page">

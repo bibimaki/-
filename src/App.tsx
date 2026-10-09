@@ -534,20 +534,52 @@ function App() {
     setRoomActionMessage('เพิ่มหัวข้องานในแผนแล้ว สมาชิกจะเห็นงานเมื่อโฮสต์กดเริ่มงาน')
   }
 
-  function startRoomWork(room: GroupRoom) {
+  async function startRoomWork(room: GroupRoom) {
     if (room.ownerId !== authSession?.user?.id) return
+    if (!supabase || !authSession?.user?.id || !room.dbId) {
+      setRoomActionMessage('ยังเชื่อมต่อฐานข้อมูลไม่ได้ จึงยังส่งงานให้สมาชิกไม่ได้ค่ะ')
+      return
+    }
     const drafts = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId === room.id && task.workflowStatus === 'planning')
     if (!drafts.length) {
       setRoomActionMessage('เพิ่มหัวข้องานและเลือกผู้รับผิดชอบอย่างน้อย 1 งานก่อนเริ่มงานค่ะ')
       return
     }
-    const unassigned = drafts.some(task => !task.assignedTo || !room.members.some(member => member.userId === task.assignedTo))
+    const unassigned = drafts.some(task => !task.assignedTo || !room.members.some(member => member.userId === task.assignedTo && member.role !== 'owner'))
     if (unassigned) {
       setRoomActionMessage('มีงานที่ยังไม่ได้มอบหมายให้สมาชิก กรุณาตรวจสอบก่อนเริ่มงาน')
       return
     }
-    setTasks(current => current.map(task => task.groupRoomId === room.id && task.workflowStatus === 'planning' ? { ...task, workflowStatus: 'active' } : task))
-    setRoomActionMessage(`เริ่มงานแล้ว! ส่งงานที่มอบหมาย ${drafts.length} งานให้สมาชิกแต่ละคนแล้ว`)
+
+    // Persist every task as active in Supabase before telling the host it was sent.
+    // The recipient's browser loads group_tasks from the shared database, not from this device's local state.
+    setGroupRoomBusy(true)
+    setRoomActionMessage('กำลังส่งงานให้สมาชิก...')
+    try {
+      const activeDrafts = drafts.map(task => ({ ...task, workflowStatus: 'active' as const }))
+      for (const task of activeDrafts) {
+        const { error } = await supabase.from('group_tasks').upsert({
+          room_id: room.dbId,
+          created_by: authSession.user.id,
+          task_key: String(task.id),
+          task_data: { ...task, groupRoomId: undefined },
+        }, { onConflict: 'room_id,task_key' })
+        if (error) throw error
+      }
+      setTasks(current => current.map(task =>
+        task.type === 'งานกลุ่ม' && task.groupRoomId === room.id && task.workflowStatus === 'planning'
+          ? { ...task, workflowStatus: 'active' }
+          : task
+      ))
+      setRoomActionMessage(`ส่งงานขึ้นฐานข้อมูลแล้ว ${activeDrafts.length} งาน สมาชิกเปิดหน้า “งานของฉัน” หรือเข้าห้องใหม่เพื่อโหลดงานได้ค่ะ`)
+    } catch (error) {
+      console.error('เริ่มงานกลุ่ม/ส่งงานไม่สำเร็จ:', error)
+      setRoomActionMessage(error instanceof Error
+        ? `ส่งงานไม่สำเร็จ: ${error.message}`
+        : 'ส่งงานไม่สำเร็จ กรุณาตรวจสอบสิทธิ์ RLS ของ group_tasks')
+    } finally {
+      setGroupRoomBusy(false)
+    }
   }
 
   async function createGroupRoom(event: FormEvent<HTMLFormElement>) {

@@ -3242,7 +3242,7 @@ main, .main-content, .app-main, .content, .page-content, .workspace, .dashboard-
 .showcase-copy h3{font-size:clamp(20px,3vw,28px);color:#50366e;margin:6px 0}
 .soft-kicker{font-size:10px;font-weight:800;letter-spacing:2px;color:#a48ac2}
 .selected-pet-pill{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #e6d7f2;border-radius:999px;background:#ffffffb8;color:#684b82;font-size:13px;margin:4px 0 8px}
-.selected-pet-pill>span:first-child{font-size:22px}
+.selected-pet-pill>img{width:36px;height:36px;object-fit:contain;flex:0 0 36px}
 .character-gender-tabs{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}
 .character-gender-tabs button{border:1px solid #e6d8f1;border-radius:999px;padding:10px 16px;background:#fffaff;color:#846b9b;font:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .18s ease}
 .character-gender-tabs button:hover{transform:translateY(-1px);border-color:#c9a7e9}
@@ -3260,11 +3260,33 @@ main, .main-content, .app-main, .content, .page-content, .workspace, .dashboard-
 .pet-choice-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:128px;padding:12px;border:1px solid #eee1f6;border-radius:18px;background:linear-gradient(155deg,#fff,#fcf7ff);color:#634779;font:inherit;cursor:pointer;transition:all .18s ease}
 .pet-choice-card:hover{transform:translateY(-2px);border-color:#d2b5ef}
 .pet-choice-card.selected{border:2px solid #b28ae7;background:#f5eaff;box-shadow:0 0 0 4px #d9c1f733}
-.pet-choice-icon{height:58px;width:66px;display:grid;place-items:center;font-size:42px}
-.pet-choice-icon img{width:100%;height:100%;object-fit:contain}
+.pet-choice-icon{height:100px;width:100%;max-width:112px;display:grid;place-items:center;overflow:hidden;border-radius:14px;background:radial-gradient(circle at 50% 35%,#fff 0,#fbf2ff 70%,#f1e5fb 100%)}
+.pet-choice-icon img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 4px 5px #8c6aa322)}
+.pet-choice-id{font-size:9px!important;letter-spacing:1px;color:#b09ac3!important}
+.preview-pet{width:72px;height:72px;position:absolute;bottom:40px;margin-left:125px;display:grid;place-items:center}
+.preview-pet img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 4px 5px #8c6aa333)}
 .pet-choice-card strong{font-size:12px;text-align:center}
 .pet-choice-card small{font-size:10px;font-weight:800;color:#8a5ac0}
 .preview-character{display:grid;place-items:center;overflow:visible}
 .preview-character img{width:100%;height:100%;max-width:108px;max-height:108px;object-fit:contain;filter:drop-shadow(0 4px 5px #8c6aa333)}
 .customization-page .character-choice-grid,.customization-page .pet-choice-grid{margin-bottom:20px}
 @media(max-width:640px){.character-showcase-art{align-items:flex-start;gap:14px;padding:16px}.showcase-character-art{width:112px;height:112px;flex-basis:112px;border-radius:18px}.character-page-title>img{width:44px;height:44px}.character-choice-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.pet-choice-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.character-gender-tabs button{flex:1;min-width:130px}.character-showcase-art:after{display:none}}
+
+
+/* Aevora room atmosphere picker — four real background scenes */
+.customization-preview { background-size: cover; background-position: center; color: #fffaff; text-shadow: 0 1px 5px #21153288; }
+.customization-preview h3, .customization-preview p, .customization-preview small { color: #fffaff; position: relative; z-index: 1; }
+.customization-preview .preview-stars, .customization-preview .preview-room-icon { color: #fff1bd; z-index: 1; }
+.customization-preview .preview-character, .customization-preview .preview-pet, .customization-preview .preview-decorations { z-index: 1; }
+.room-theme-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.room-theme-card { min-width: 0; overflow: hidden; padding: 0 0 13px; border: 1px solid #e7d9f2; border-radius: 17px; background: #fffafd; color: #49365f; text-align: left; cursor: pointer; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.room-theme-card:hover { transform: translateY(-3px); border-color: #b69ae8; box-shadow: 0 8px 22px #8060cc1c; }
+.room-theme-card.selected { border: 2px solid #9169d4; box-shadow: 0 0 0 3px #b99be833, 0 8px 22px #8060cc22; background: #fbf6ff; }
+.room-theme-image { display: block; position: relative; height: clamp(110px, 16vw, 190px); margin-bottom: 11px; overflow: hidden; background: #e9ddf7; }
+.room-theme-image img { width: 100%; height: 100%; display: block; object-fit: cover; transition: transform .25s ease; }
+.room-theme-card:hover .room-theme-image img { transform: scale(1.035); }
+.room-theme-card > strong, .room-theme-card > small { display: block; margin: 0 13px; }
+.room-theme-card > strong { font-size: 14px; line-height: 1.45; }
+.room-theme-card > small { margin-top: 5px; color: #8a789b; font-size: 11px; line-height: 1.5; }
+.room-theme-check { position: absolute; right: 9px; bottom: 9px; padding: 5px 9px; border: 1px solid #ffffffa8; border-radius: 999px; background: #6f4bbbe8; color: white; font-size: 11px; box-shadow: 0 2px 9px #21153255; }
+@media (max-width: 560px) { .room-theme-grid { grid-template-columns: minmax(0, 1fr); } .room-theme-image { height: 170px; } }

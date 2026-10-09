@@ -310,7 +310,6 @@ function App() {
     let cancelled = false
     async function loadGroupRooms() {
       if (!supabase || !authSession?.user?.id || !cloudReady) return
-      const userId = authSession.user.id
       try {
         const { data: rooms, error: roomError } = await supabase.rpc('get_my_group_rooms')
         if (roomError) throw roomError
@@ -498,7 +497,8 @@ function App() {
       setNewRoomName('')
       setGroupRoomMessage('สร้างห้องสำเร็จแล้ว คัดลอกลิงก์เพื่อเชิญเพื่อนได้เลย')
       const { data: members } = await supabase.rpc('get_group_room_members', { p_room_id: room.id })
-      setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: (members || []).map(member => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
+      const memberList = (members ?? []) as { user_id: string; role: string }[]
+      setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: memberList.map((member) => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
     } catch (error) {
       console.error('สร้างห้องงานกลุ่มไม่สำเร็จ:', error)
       setGroupRoomMessage(error instanceof Error ? `สร้างห้องไม่สำเร็จ: ${error.message}` : 'สร้างห้องไม่สำเร็จ กรุณาตรวจสอบ RLS policies ใน Supabase')
@@ -1250,8 +1250,7 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
                     throw new Error('กรุณาเข้าสู่ระบบก่อนอัปโหลดไฟล์')
                   }
 
-                  const userId = authSession.user.id
-                  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+                              const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
                   const storagePath = `${userId}/${task.id}/${attachmentId}-${safeName}`
 
                   const { error: uploadError } = await supabase.storage
@@ -1375,8 +1374,7 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
                     throw new Error('กรุณาเข้าสู่ระบบก่อนอัปโหลดไฟล์')
                   }
 
-                  const userId = authSession.user.id
-                  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+                              const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
                   const storagePath = `${userId}/${task.id}/${attachmentId}-${safeName}`
 
                   const { error: uploadError } = await supabase.storage

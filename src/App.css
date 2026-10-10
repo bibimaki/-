@@ -2210,6 +2210,9 @@ main, .main-content, .app-main, .content, .page-content, .workspace, .dashboard-
 .quest-grid,.achievement-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:18px; }
 .quest-card { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:12px; min-width:0; padding:16px; border:1px solid #ece3f4; border-radius:16px; background:linear-gradient(145deg,#fff,#fcf8ff); }
 .quest-icon,.achievement-icon { display:grid; place-items:center; width:42px; height:42px; border-radius:13px; background:#f1e9ff; font-size:21px; }
+.quest-icon { overflow:hidden; flex:0 0 42px; }
+.quest-icon img { display:block; width:100%; height:100%; object-fit:contain; }
+.quest-icon.quest-is-locked img { filter:grayscale(.65) saturate(.7); opacity:.8; }
 .quest-copy { min-width:0; }
 .quest-copy h3,.achievement-card h3 { margin:0 0 6px; color:#382a56; font-size:15px; overflow-wrap:anywhere; }
 .quest-copy p,.achievement-card p,.streak-summary p { margin:0 0 10px; color:#827493; font-size:12px; line-height:1.6; }
@@ -3889,85 +3892,9 @@ body {
 .task-section-title { display: flex; align-items: center; gap: 9px; }
 .task-section-title img { width: 54px; height: 54px; object-fit: contain; flex: 0 0 auto; }
 @media (max-width: 700px) { .pet-activity-icon { width: 62px; height: 62px; } .task-type-art { width: 23px; height: 23px; } .task-section-title img { width: 42px; height: 42px; } .group-room-icon { width: 44px; height: 44px; } }
-/* เพิ่มส่วนนี้ไว้ท้าย src/App.css เพื่อจัดไอคอนลอยและต้นไม้ตกแต่ง */
 
-/* ไอคอน EXP ในแถบเลเวล */
-.exp-orb-image {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: visible;
-  background: transparent;
-}
-
-.exp-orb-image img {
-  display: block;
-  width: 48px;
-  height: 48px;
-  object-fit: contain;
-  animation: aevora-icon-float 3s ease-in-out infinite;
-  filter: drop-shadow(0 4px 7px rgba(115, 65, 170, 0.22));
-}
-
-/* ไอคอนแทนอีโมจิในสถิติ */
-.stat-icon-image {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 42px;
-  line-height: 1;
-}
-
-.stat-icon-image img {
-  display: block;
-  width: 42px;
-  height: 42px;
-  object-fit: contain;
-  animation: aevora-icon-float 3.2s ease-in-out infinite;
-  filter: drop-shadow(0 4px 7px rgba(115, 65, 170, 0.2));
-}
-
-/* ต้นไม้จิ๋วด้านหลังหัวข้อทักทาย */
-.welcome-title-wrap {
-  position: relative;
-  isolation: isolate;
-  width: fit-content;
-  max-width: 100%;
-}
-
-.welcome-title {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-}
-
-.welcome-tree {
-  position: absolute;
-  z-index: 0;
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  font-size: 30px;
-  line-height: 1;
-  right: -25px;
-  top: -18px;
-  opacity: 0.92;
-  pointer-events: none;
-}
-
-@keyframes aevora-icon-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
-}
-
-@media (max-width: 600px) {
-  .exp-orb-image img { width: 40px; height: 40px; }
-  .stat-icon-image img { width: 34px; height: 34px; }
-  .welcome-tree { width: 30px; height: 30px; right: -18px; top: -12px; font-size: 24px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .exp-orb-image img,
-  .stat-icon-image img { animation: none; }
-}
+/* Quest status artwork sizing and state presentation */
+.gamification-page .quest-icon { width: 46px; height: 46px; padding: 2px; overflow: hidden; }
+.gamification-page .quest-icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.gamification-page .quest-icon.quest-is-locked img { filter: grayscale(.7); opacity: .78; }
+.gamification-page .quest-status:not(.is-done) { line-height: 1.4; }

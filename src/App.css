@@ -3702,3 +3702,22 @@ body {
 .group-project-submit-row>button:disabled{opacity:.6;cursor:wait}
 @media(max-width:720px){.group-project-planner{padding:15px}.group-project-planner-heading{flex-direction:column}.group-project-meta-grid{grid-template-columns:1fr}.group-project-description{grid-column:auto}.group-project-task-heading{align-items:stretch;flex-direction:column}.group-project-draft-row{grid-template-columns:30px minmax(0,1fr)}.group-project-draft-row label{grid-column:2}.group-project-remove-task{grid-column:2;width:100%}.group-project-submit-row{align-items:stretch;flex-direction:column}.group-project-submit-row>button{width:100%}}
 .group-overview-task-description{margin:5px 0 0;color:#806d9d;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+
+/* Group project kickoff and task allocation */
+.group-project-start{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:20px 0;padding:20px 22px;border:1px solid #e7d9fa;border-radius:18px;background:linear-gradient(120deg,#fbf7ff,#fffaf2)}
+.group-project-start strong{font-size:17px;color:#4d3678}
+.group-project-start p{margin:5px 0 0;color:#857795;font-size:13px}
+.group-project-start>button,.group-project-form-actions button[type=submit]{border:0;border-radius:12px;padding:11px 18px;background:linear-gradient(120deg,#8d6ad5,#6d4fc0);color:white;font-weight:700;box-shadow:0 5px 14px #8061bf2c}
+.group-project-start>button:disabled{opacity:.45;cursor:not-allowed}
+.group-project-form{margin:18px 0 24px;padding:22px;border:1px solid #e9def5;border-radius:18px;background:#fffaff;display:grid;gap:14px}
+.group-project-form h3{margin:0;color:#49346d}
+.group-project-form label{display:grid;gap:6px;color:#675779;font-size:13px;font-weight:600}
+.group-project-form input,.group-project-form textarea,.group-project-item select,.group-project-item input{width:100%;min-width:0;padding:11px 12px;border:1px solid #e3d7ef;border-radius:10px;background:white;color:#392c4e}
+.group-project-form textarea{resize:vertical}
+.group-project-items-heading,.group-project-form-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.group-project-items-heading button{border:1px solid #e4d6f5;background:#f7f0ff;color:#6546a1;border-radius:10px;padding:8px 12px}
+.group-project-item{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) auto;gap:9px;align-items:center}
+.group-project-item>button{border:0;border-radius:9px;padding:9px 10px;background:#fff0f2;color:#a7475e}
+.group-project-form-actions{justify-content:flex-end;padding-top:5px}
+.group-room-delete:disabled{opacity:.5}
+@media(max-width:650px){.group-project-start{align-items:stretch;flex-direction:column}.group-project-item{grid-template-columns:1fr}.group-project-form{padding:15px}}

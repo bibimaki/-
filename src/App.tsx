@@ -466,7 +466,7 @@ function App() {
 
   async function joinGroupRoom(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const code = joinRoomCode.trim().toUpperCase()
+    const code = joinRoomCode.trim().replace(/\s+/g, '').toUpperCase()
     if (!code || !supabase || !authSession?.user?.id) {
       setGroupRoomMessage('กรุณาเข้าสู่ระบบและกรอกรหัสห้อง')
       return
@@ -474,21 +474,33 @@ function App() {
     setGroupRoomBusy(true)
     setGroupRoomMessage('')
     try {
-      const { data: room, error: roomError } = await supabase.from('group_rooms')
-        .select('id,owner_id,name,invite_code,created_at').eq('invite_code', code).maybeSingle()
-      if (roomError) throw roomError
-      if (!room) throw new Error('ไม่พบรหัสห้องนี้ ตรวจสอบรหัสแล้วลองอีกครั้ง')
-      const { error: joinError } = await supabase.from('group_members')
-        .upsert({ room_id: room.id, user_id: authSession.user.id, role: 'member' }, { onConflict: 'room_id,user_id', ignoreDuplicates: true })
+      // Use the SECURITY DEFINER RPC so members can join without needing
+      // direct SELECT access to every row in group_rooms (RLS hides other owners' rooms).
+      const { data: joinedRoomData, error: joinError } = await supabase.rpc(
+        'join_group_room_by_code',
+        { p_code: code },
+      )
       if (joinError) throw joinError
+      const room = Array.isArray(joinedRoomData) ? joinedRoomData[0] : joinedRoomData
+      if (!room || !room.id) {
+        throw new Error('ไม่พบรหัสห้องนี้ในฐานข้อมูลที่เว็บไซต์กำลังเชื่อมต่อ กรุณาคัดลอกรหัสจากห้องที่ยังมีอยู่แล้วลองอีกครั้ง')
+      }
       setJoinRoomCode('')
       setGroupRoomMessage(`เข้าร่วมห้อง “${room.name}” สำเร็จแล้ว`)
-      const { data: members, error: membersError } = await supabase.from('group_members').select('room_id,user_id,role').eq('room_id', room.id)
-      if (membersError) throw membersError
-      setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: (members || []).map(member => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
+      // Avoid querying all members here: members_select_self intentionally limits
+      // visibility, and a follow-up SELECT must not turn a successful join into an error.
+      setGroupRooms(current => [{
+        id: Date.now(),
+        dbId: room.id as string,
+        ownerId: room.owner_id as string,
+        name: room.name as string,
+        code: room.invite_code as string,
+        members: [{ userId: authSession.user.id, role: room.owner_id === authSession.user.id ? 'owner' : 'member' }],
+      }, ...current.filter(item => item.dbId !== room.id)])
     } catch (error) {
       console.error('เข้าร่วมห้องงานกลุ่มไม่สำเร็จ:', error)
-      setGroupRoomMessage(error instanceof Error ? `เข้าร่วมห้องไม่สำเร็จ: ${error.message}` : 'เข้าร่วมห้องไม่สำเร็จ กรุณาตรวจสอบ RLS policies ใน Supabase')
+      const message = error instanceof Error ? error.message : String(error)
+      setGroupRoomMessage(`เข้าร่วมห้องไม่สำเร็จ: ${message}`)
     } finally {
       setGroupRoomBusy(false)
     }

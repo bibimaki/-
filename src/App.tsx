@@ -1674,10 +1674,10 @@ function App() {
                 try {
                   // Delete dependent rows explicitly so this works even when the
                   // database has no ON DELETE CASCADE foreign keys configured.
-                  const { data: deletedTasks, error: tasksError } = await supabase.from('group_tasks')
+                  const { error: tasksError } = await supabase.from('group_tasks')
                     .delete().eq('room_id', room.dbId).select('id')
                   if (tasksError) throw tasksError
-                  const { data: deletedMembers, error: membersError } = await supabase.from('group_members')
+                  const { error: membersError } = await supabase.from('group_members')
                     .delete().eq('room_id', room.dbId).select('user_id')
                   if (membersError) throw membersError
                   const { data: deletedRoom, error: roomError } = await supabase.from('group_rooms')

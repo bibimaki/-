@@ -3611,3 +3611,70 @@ body {
 .group-room-task-card .group-task-assignee{margin:6px 0;color:#544365;font-size:13px}
 .group-room-task-card .group-task-assignee strong{color:#352344}
 @media(max-width:600px){.group-assignment-preview-row{grid-template-columns:1fr}.group-assignment-preview-row strong{text-align:left}}
+
+/* Leave room action */
+.group-workspace-hero-actions{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.group-room-leave-button{align-self:flex-start;border:1px solid #e7a5b5;border-radius:12px;background:#fff0f3;color:#963c58;padding:10px 14px;font-weight:750;cursor:pointer;white-space:nowrap;transition:background .18s ease,transform .18s ease}
+.group-room-leave-button:hover:not(:disabled){background:#ffe2e9;transform:translateY(-1px)}
+.group-room-leave-button:disabled{opacity:.6;cursor:wait}
+@media(max-width:720px){.group-workspace-hero-actions{display:grid;grid-template-columns:1fr}.group-workspace-code{min-width:0}.group-room-leave-button{width:100%;align-self:stretch}}
+
+
+/* Aevora custom image actions */
+.aevora-image-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+  transition: transform .16s ease, filter .16s ease;
+}
+.aevora-image-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.05) drop-shadow(0 4px 5px #4b2d7440);
+}
+.aevora-image-button:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.aevora-image-button:focus-visible { outline: 3px solid #f7d8ff; outline-offset: 3px; }
+.aevora-image-button:disabled { opacity: .55; cursor: wait; }
+.aevora-image-button img { display: block; width: 100%; height: auto; object-fit: contain; }
+.join-room-image-button { width: min(100%, 247px); }
+.create-task-image-button { width: min(100%, 205px); }
+.invite-friend-image-button { width: min(100%, 234px); }
+.group-room-invite-action { display: flex; justify-content: flex-start; }
+.group-room-invite-action .invite-friend-image-button {
+  width: min(100%, 234px);
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.group-room-create .create-task-image-button { justify-self: start; }
+.group-room-create:has(.create-task-image-button) { align-items: center; }
+.daily-quote-image {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  align-items: stretch;
+  justify-content: center;
+  overflow: hidden;
+  background: #281f56;
+}
+.daily-quote-image > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 248px;
+  object-fit: contain;
+  object-position: center;
+}
+@media (max-width: 640px) {
+  .create-task-image-button { width: min(100%, 180px); }
+  .join-room-image-button { width: min(100%, 220px); }
+  .invite-friend-image-button { width: min(100%, 210px); }
+  .daily-quote-image > img { min-height: 0; height: auto; }
+}

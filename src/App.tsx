@@ -1261,24 +1261,38 @@ function App() {
 
   async function deleteTask(task: Task) {
     if (!canManageTask(task)) {
-      setGroupRoomMessage('คุณแก้ไขหรือลบงานนี้ไม่ได้ เฉพาะผู้รับผิดชอบและโฮสต์ของห้องเท่านั้น')
+      setGroupRoomMessage('คุณลบงานนี้ไม่ได้ เฉพาะผู้รับผิดชอบและโฮสต์ของห้องเท่านั้นที่ลบงานกลุ่มได้')
       return
     }
-    if (!window.confirm(`ต้องการลบงาน “${task.title}” ใช่ไหม?`)) return
-    if (task.type === 'งานกลุ่ม' && task.groupRoomId !== undefined && supabase) {
+    if (!window.confirm(`ต้องการลบงาน “${task.title}” ใช่ไหม? การลบนี้ไม่สามารถย้อนกลับได้`)) return
+
+    // Delete the shared database row first; otherwise realtime sync may bring the task back.
+    if (task.type === 'งานกลุ่ม') {
+      if (!supabase) {
+        setGroupRoomMessage('ยังเชื่อมต่อ Supabase ไม่ได้ จึงลบงานกลุ่มออนไลน์ไม่ได้')
+        return
+      }
       const room = groupRooms.find(item => item.id === task.groupRoomId)
-      if (room?.dbId) {
-        const { error } = await supabase.from('group_tasks').delete()
-          .eq('room_id', room.dbId).eq('task_key', String(task.id))
-        if (error) {
-          console.error('ลบงานกลุ่มออนไลน์ไม่สำเร็จ:', error.message)
-          setGroupRoomMessage(`ลบงานไม่สำเร็จ: ${error.message}`)
-          return
-        }
+      if (!room?.dbId) {
+        setGroupRoomMessage('ไม่พบห้องของงานนี้ กรุณารีเฟรชข้อมูลห้องแล้วลองลบอีกครั้ง')
+        return
+      }
+      const { error } = await supabase.from('group_tasks').delete()
+        .eq('room_id', room.dbId).eq('task_key', String(task.id))
+      if (error) {
+        console.error('ลบงานกลุ่มออนไลน์ไม่สำเร็จ:', error.message)
+        setGroupRoomMessage(`ลบงานไม่สำเร็จ: ${error.message}`)
+        return
       }
     }
+
     setTasks(current => current.filter(item => item.id !== task.id))
     if (selectedTaskId === task.id) setSelectedTaskId(null)
+    if (editingId === task.id) {
+      setEditingId(null)
+      setShowForm(false)
+    }
+    setGroupRoomMessage('ลบงานเรียบร้อยแล้ว')
   }
 
   function toggleTask(id: number) {
@@ -1450,13 +1464,13 @@ function App() {
 
         <header className="topbar">
 
-          <div className="welcome"><div className="avatar">{profileEmoji}</div><div className="welcome-copy"><div className="welcome-title-wrap"><span className="welcome-tree" aria-hidden="true">🪴</span><h1 className="welcome-title">สวัสดี {profileName || 'เพื่อน'} ✦</h1></div><p>{profileBio || 'วันนี้เรามาค่อย ๆ ทำให้สำเร็จกัน'}</p></div></div>
+          <div className="welcome"><div className="avatar">{profileEmoji}</div><div className="welcome-copy"><div className="welcome-title-wrap"><h1 className="welcome-title">สวัสดี {profileName || 'เพื่อน'}</h1></div><p>{profileBio || 'วันนี้เรามาค่อย ๆ ทำให้สำเร็จกัน'}</p></div></div>
 
           <div className="topbar-right"><div className="quote">“ทุกงานเล็ก ๆ คือก้าวไปใกล้ความสำเร็จ”</div><button className="icon-button" aria-label="ค้นหา" onClick={() => { navigateTo('งานของฉัน'); document.getElementById('task-search')?.focus() }}>⌕</button><div className="notification-wrap"><button type="button" className="icon-button notification-button" aria-label="การแจ้งเตือน" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}>♧{dueNotifications.length > 0 && <span className="notification-badge">{dueNotifications.length > 9 ? '9+' : dueNotifications.length}</span>}</button>{notificationsOpen && <div className="notification-popover"><div className="notification-popover-heading"><div><strong>การแจ้งเตือน</strong><small>งานที่ใกล้ถึงกำหนดใน 3 วัน</small></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="ปิดการแจ้งเตือน">×</button></div>{dueNotifications.length === 0 ? <p className="notification-empty">ยังไม่มีงานใกล้ถึงกำหนด ✨</p> : <><p className="notification-summary">{overdueCount > 0 ? `มีงานเลยกำหนด ${overdueCount} งาน` : `มีงานใกล้ถึงกำหนด ${dueNotifications.length} งาน`}</p><div className="notification-list">{dueNotifications.map(task => <button type="button" className="notification-item" key={task.id} onClick={() => { navigateTask(task.id, false); setEditingId(null); navigateTo('งานของฉัน'); setNotificationsOpen(false) }}><span className={`notification-dot ${(task.dueDate || '') < todayKey ? 'overdue' : ''}`}/><span className="notification-item-text"><strong>{task.title}</strong><small>{(task.dueDate || '') < todayKey ? 'เลยกำหนดส่ง' : (task.dueDate || '') === todayKey ? 'ครบกำหนดวันนี้' : `กำหนดส่ง ${new Date(`${task.dueDate}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}`}</small></span><span className="notification-arrow">›</span></button>)}</div></>}</div>}</div><div className={`level-pill ${activeNav === 'หน้าหลัก' ? 'level-pill-home' : 'level-pill-with-rank'}`}>{activeNav !== 'หน้าหลัก' && <img className="profile-rank-icon" src={rankImage} alt={`Rank ${rankTier}`} title={`Rank ${rankTier}`} />}<span className="level-avatar">🌙</span><div><strong>Lv. {level}</strong><small>{expBalance} EXP</small></div></div><span className="aevora-cloud-status" title="สถานะการซิงก์">☁ {cloudStatus}</span><button type="button" className="aevora-logout-button" onClick={async () => { if (!supabase) return; const { error } = await supabase.auth.signOut(); if (error) window.alert(`ออกจากระบบไม่สำเร็จ: ${error.message}`) }}>ออกจากระบบ</button></div>
 
         </header>
 
-        {activeNav === 'ภารกิจ' && <section className="panel gamification-page"><div className="panel-heading"><div><h2>ภารกิจของวันนี้</h2><p className="muted">ทำงานจริงเพื่อเก็บ EXP และปลดล็อกรางวัล</p></div><span className="gamification-level">Lv. {level} · {exp} EXP</span></div><div className="quest-grid"><article className="quest-card"><span className="quest-icon"><img src={questIcon(todayCompleted >= 1, false, hasActiveTask)} alt={todayCompleted >= 1 ? 'เควสสำเร็จ' : hasActiveTask ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>ก้าวเล็กประจำวัน</h3><p>ทำงานให้เสร็จอย่างน้อย 1 งานวันนี้</p><div className="quest-track"><span style={{width:`${Math.min(todayCompleted,1)*100}%`}}/></div><small>{Math.min(todayCompleted,1)} / 1 งาน</small></div><strong className="quest-reward">+100 EXP</strong><span className={`quest-status ${todayCompleted >= 1 ? 'is-done' : ''}`}>{todayCompleted >= 1 ? 'สำเร็จแล้ว ✓' : 'กำลังทำ'}</span></article><article className="quest-card"><span className={`quest-icon ${level < 3 ? 'quest-is-locked' : ''}`}><img src={questIcon(weekCompleted >= 3, level < 3, level >= 3 && weekCompleted > 0)} alt={weekCompleted >= 3 ? 'เควสสำเร็จ' : level < 3 ? 'เควสล็อก' : weekCompleted > 0 ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>นักจัดการประจำสัปดาห์</h3><p>ทำงานให้เสร็จ 3 งานในช่วง 7 วันที่ผ่านมา</p><div className="quest-track"><span style={{width:`${Math.min(weekCompleted/3,1)*100}%`}}/></div><small>{Math.min(weekCompleted,3)} / 3 งาน</small></div><strong className="quest-reward">+300 EXP</strong><span className={`quest-status ${weekCompleted >= 3 ? 'is-done' : ''}`}>{weekCompleted >= 3 ? 'สำเร็จแล้ว ✓' : 'กำลังทำ'}</span></article><article className="quest-card"><span className={`quest-icon ${level < 5 ? 'quest-is-locked' : ''}`}><img src={questIcon(streak >= 7, level < 5, level >= 5 && streak > 0)} alt={streak >= 7 ? 'เควสสำเร็จ' : level < 5 ? 'เควสล็อก' : streak > 0 ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>รักษาไฟในการทำงาน</h3><p>ทำงานสำเร็จต่อเนื่องหลายวัน</p><div className="quest-track"><span style={{width:`${Math.min(streak/7,1)*100}%`}}/></div><small>Streak {streak} วัน</small></div><strong className="quest-reward">เป้าหมาย 7 วัน</strong><span className="quest-status">{streak >= 7 ? 'สำเร็จแล้ว ✓' : 'สะสมต่อไป'}</span></article></div><p className="gamification-note">EXP และภารกิจคำนวณจากงานที่ทำเครื่องหมายว่าเสร็จแล้วในเบราว์เซอร์นี้ การติ๊กงานเดิมซ้ำจะไม่เพิ่มจำนวนงานที่เสร็จโดยรวม</p></section>}
+        {activeNav === 'ภารกิจ' && <section className="panel gamification-page"><div className="panel-heading"><div><h2>ภารกิจของวันนี้</h2><p className="muted">ทำงานจริงเพื่อเก็บ EXP และปลดล็อกรางวัล</p></div><span className="gamification-level">Lv. {level} · {exp} EXP</span></div><div className="quest-grid"><article className="quest-card"><span className="quest-icon"><img src={questIcon(todayCompleted >= 1, false, hasActiveTask)} alt={todayCompleted >= 1 ? 'เควสสำเร็จ' : hasActiveTask ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>ก้าวเล็กประจำวัน</h3><p>ทำงานให้เสร็จอย่างน้อย 1 งานวันนี้</p><div className="quest-track"><span style={{width:`${Math.min(todayCompleted,1)*100}%`}}/></div><small>{Math.min(todayCompleted,1)} / 1 งาน</small></div><strong className="quest-reward">+100 EXP</strong><span className={`quest-status ${todayCompleted >= 1 ? 'is-done' : ''}`}>{todayCompleted >= 1 ? 'สำเร็จแล้ว ✓' : hasActiveTask ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span></article><article className="quest-card"><span className={`quest-icon ${level < 3 ? 'quest-is-locked' : ''}`}><img src={questIcon(weekCompleted >= 3, level < 3, level >= 3 && weekCompleted > 0)} alt={weekCompleted >= 3 ? 'เควสสำเร็จ' : level < 3 ? 'เควสล็อก' : weekCompleted > 0 ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>นักจัดการประจำสัปดาห์</h3><p>ทำงานให้เสร็จ 3 งานในช่วง 7 วันที่ผ่านมา</p><div className="quest-track"><span style={{width:`${Math.min(weekCompleted/3,1)*100}%`}}/></div><small>{Math.min(weekCompleted,3)} / 3 งาน</small></div><strong className="quest-reward">+300 EXP</strong><span className={`quest-status ${weekCompleted >= 3 ? 'is-done' : ''}`}>{weekCompleted >= 3 ? 'สำเร็จแล้ว ✓' : level < 3 ? 'ล็อกอยู่ 🔒' : weekCompleted > 0 ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span></article><article className="quest-card"><span className={`quest-icon ${level < 5 ? 'quest-is-locked' : ''}`}><img src={questIcon(streak >= 7, level < 5, level >= 5 && streak > 0)} alt={streak >= 7 ? 'เควสสำเร็จ' : level < 5 ? 'เควสล็อก' : streak > 0 ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>รักษาไฟในการทำงาน</h3><p>ทำงานสำเร็จต่อเนื่องหลายวัน</p><div className="quest-track"><span style={{width:`${Math.min(streak/7,1)*100}%`}}/></div><small>Streak {streak} วัน</small></div><strong className="quest-reward">เป้าหมาย 7 วัน</strong><span className="quest-status">{streak >= 7 ? 'สำเร็จแล้ว ✓' : level < 5 ? 'ล็อกอยู่ 🔒' : streak > 0 ? 'กำลังทำ' : 'สะสมต่อไป'}</span></article></div><p className="gamification-note">EXP และภารกิจคำนวณจากงานที่ทำเครื่องหมายว่าเสร็จแล้วในเบราว์เซอร์นี้ การติ๊กงานเดิมซ้ำจะไม่เพิ่มจำนวนงานที่เสร็จโดยรวม</p></section>}
         {activeNav === 'ความสำเร็จ' && <section className="panel gamification-page growth-page">
           <div className="panel-heading"><div><h2>การเติบโตของฉัน</h2><p className="muted">สามเส้นทางที่เติบโตจากการลงมือทำจริง</p></div><span className="gamification-level">{completed} งานสำเร็จ</span></div>
           <div className="growth-grid">

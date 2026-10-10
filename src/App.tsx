@@ -1229,7 +1229,7 @@ function App() {
                   setTasks(current => current.filter(task => task.groupRoomId !== room.id))
                   setGroupRooms(current => current.filter(item => item.dbId !== room.dbId))
                   if (selectedRoomId === room.id) setSelectedRoomId(null)
-                  if (selectedTask?.groupRoomId === room.id) setSelectedTaskId(null)
+                  if (selectedTaskId !== null && tasks.some(task => task.id === selectedTaskId && task.groupRoomId === room.id)) setSelectedTaskId(null)
                   setGroupRoomMessage('ลบห้องและงานในห้องแล้ว')
                 } catch (error) { setGroupRoomMessage(error instanceof Error ? `ลบห้องไม่สำเร็จ: ${error.message}` : 'ลบห้องไม่สำเร็จ') }
                 finally { setGroupRoomBusy(false) }

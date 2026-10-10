@@ -3550,3 +3550,76 @@ body {
   .nav-icon img { width: 36px; height: 36px; }
   .nav-item { gap: 9px; min-height: 48px; }
 }
+
+/* V10: image buttons without an unwanted purple backing */
+.group-member-form .join-room-image-button {
+  flex: 0 0 224px;
+  min-width: 180px;
+  min-height: 72px;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: transparent !important;
+  position: relative;
+  overflow: visible;
+  cursor: pointer;
+}
+.group-member-form .join-room-image-button span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.group-member-form .join-room-image-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url('/images/aevora-ui/button-join-room.png') center / contain no-repeat;
+}
+.group-member-form .join-room-image-button:hover { transform: translateY(-1px); filter: brightness(1.04); }
+.group-member-form .join-room-image-button:disabled { opacity: .65; cursor: wait; }
+.create-task-image-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 190px;
+  height: 88px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  position: relative;
+  cursor: pointer;
+}
+.create-task-image-button span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.create-task-image-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url('/images/aevora-ui/button-create-task.png') center / contain no-repeat;
+}
+.create-task-image-button:hover { transform: translateY(-1px); filter: brightness(1.04); }
+@media (max-width: 560px) {
+  .group-member-form { align-items: center; }
+  .group-member-form .join-room-image-button { flex-basis: 190px; min-width: 150px; min-height: 62px; }
+  .create-task-image-button { width: 160px; height: 74px; }
+}

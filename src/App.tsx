@@ -273,8 +273,7 @@ function App() {
   const [groupRoomBusy, setGroupRoomBusy] = useState(false)
   const [groupRoomMessage, setGroupRoomMessage] = useState('')
   const [selectedRoomId] = useState<number | null>(null)
-  const [selectedInviteRoomId, setSelectedInviteRoomId] = useState<number | null>(null)
-  const [inviteFormat, setInviteFormat] = useState<'link' | 'code' | 'message'>('message')
+  const [selectedWorkspaceRoomId, setSelectedWorkspaceRoomId] = useState<number | null>(null)
   useEffect(() => {
     const inviteCode = new URLSearchParams(window.location.search).get('join')
     if (inviteCode) { setJoinRoomCode(inviteCode.toUpperCase()); setActiveNav('งานกลุ่ม') }
@@ -466,7 +465,7 @@ function App() {
 
   async function joinGroupRoom(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const code = joinRoomCode.trim().replace(/\s+/g, '').toUpperCase()
+    const code = joinRoomCode.trim().toUpperCase()
     if (!code || !supabase || !authSession?.user?.id) {
       setGroupRoomMessage('กรุณาเข้าสู่ระบบและกรอกรหัสห้อง')
       return
@@ -474,33 +473,21 @@ function App() {
     setGroupRoomBusy(true)
     setGroupRoomMessage('')
     try {
-      // Use the SECURITY DEFINER RPC so members can join without needing
-      // direct SELECT access to every row in group_rooms (RLS hides other owners' rooms).
-      const { data: joinedRoomData, error: joinError } = await supabase.rpc(
-        'join_group_room_by_code',
-        { p_code: code },
-      )
+      const { data: room, error: roomError } = await supabase.from('group_rooms')
+        .select('id,owner_id,name,invite_code,created_at').eq('invite_code', code).maybeSingle()
+      if (roomError) throw roomError
+      if (!room) throw new Error('ไม่พบรหัสห้องนี้ ตรวจสอบรหัสแล้วลองอีกครั้ง')
+      const { error: joinError } = await supabase.from('group_members')
+        .upsert({ room_id: room.id, user_id: authSession.user.id, role: 'member' }, { onConflict: 'room_id,user_id', ignoreDuplicates: true })
       if (joinError) throw joinError
-      const room = Array.isArray(joinedRoomData) ? joinedRoomData[0] : joinedRoomData
-      if (!room || !room.id) {
-        throw new Error('ไม่พบรหัสห้องนี้ในฐานข้อมูลที่เว็บไซต์กำลังเชื่อมต่อ กรุณาคัดลอกรหัสจากห้องที่ยังมีอยู่แล้วลองอีกครั้ง')
-      }
       setJoinRoomCode('')
       setGroupRoomMessage(`เข้าร่วมห้อง “${room.name}” สำเร็จแล้ว`)
-      // Avoid querying all members here: members_select_self intentionally limits
-      // visibility, and a follow-up SELECT must not turn a successful join into an error.
-      setGroupRooms(current => [{
-        id: Date.now(),
-        dbId: room.id as string,
-        ownerId: room.owner_id as string,
-        name: room.name as string,
-        code: room.invite_code as string,
-        members: [{ userId: authSession.user.id, role: room.owner_id === authSession.user.id ? 'owner' : 'member' }],
-      }, ...current.filter(item => item.dbId !== room.id)])
+      const { data: members, error: membersError } = await supabase.from('group_members').select('room_id,user_id,role').eq('room_id', room.id)
+      if (membersError) throw membersError
+      setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: (members || []).map(member => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
     } catch (error) {
       console.error('เข้าร่วมห้องงานกลุ่มไม่สำเร็จ:', error)
-      const message = error instanceof Error ? error.message : String(error)
-      setGroupRoomMessage(`เข้าร่วมห้องไม่สำเร็จ: ${message}`)
+      setGroupRoomMessage(error instanceof Error ? `เข้าร่วมห้องไม่สำเร็จ: ${error.message}` : 'เข้าร่วมห้องไม่สำเร็จ กรุณาตรวจสอบ RLS policies ใน Supabase')
     } finally {
       setGroupRoomBusy(false)
     }
@@ -835,13 +822,6 @@ function App() {
   if (!authSession) return <AuthScreen />
   if (supabase && !cloudReady) return <div className="aevora-auth-loading"><div className="aevora-auth-card"><span className="aevora-auth-logo">✦</span><h1>Aevora</h1><p>กำลังโหลดข้อมูลของบัญชีนี้จากคลาวด์...</p><p style={{fontSize:12, color:'#987fa5'}}>ข้อมูลจากบัญชีอื่นจะไม่แสดงระหว่างโหลด</p></div></div>
 
-  const inviteRoom = groupRooms.find(room => room.id === selectedInviteRoomId) || groupRooms[0] || null
-  const inviteLink = inviteRoom ? `${window.location.origin}${window.location.pathname}?join=${encodeURIComponent(inviteRoom.code)}` : ''
-  const inviteContent = !inviteRoom ? '' : inviteFormat === 'link'
-    ? inviteLink
-    : inviteFormat === 'code'
-      ? inviteRoom.code
-      : `มาเข้าร่วมห้องงานกลุ่ม “${inviteRoom.name}” ใน Aevora กัน! ✨\n\nรหัสห้อง: ${inviteRoom.code}\nกดลิงก์เพื่อเข้าร่วม: ${inviteLink}\n\nถ้ายังไม่มีบัญชี ให้เข้าสู่ระบบ Aevora ก่อนนะ`
 
   return (
 
@@ -942,15 +922,15 @@ function App() {
           </form>
           <form className="group-member-form" onSubmit={joinGroupRoom}>
             <input value={joinRoomCode} onChange={event => setJoinRoomCode(event.target.value.toUpperCase())} placeholder="กรอกรหัสห้องที่ได้รับ" maxLength={12} aria-label="รหัสห้องสำหรับเข้าร่วม" required />
-            <button type="submit" className="join-room-image-button" disabled={groupRoomBusy} aria-label="เข้าร่วมด้วยรหัสห้อง"><span>เข้าร่วมด้วยรหัสห้อง</span></button>
+            <button type="submit" disabled={groupRoomBusy}>เข้าร่วมด้วยรหัส</button>
           </form>
           {groupRoomMessage && <p className="task-inline-message" role="status">{groupRoomMessage}</p>}
           {groupRooms.length === 0 ? <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีห้องงานกลุ่ม</strong><p>สร้างห้องใหม่หรือกรอกรหัสที่เพื่อนส่งให้เพื่อเข้าร่วม</p></div> : <div className="group-room-grid">{groupRooms.map(room => {
             return <article className={`group-room-card ${selectedRoomId === room.id ? 'room-selected' : ''}`} key={room.dbId}>
-              <div className="group-room-card-top"><span className="group-room-icon"><img src="/images/aevora-ui/group-room-icon.png" alt="ไอคอนห้องงานกลุ่ม" /></span><span className="group-room-count">{room.members.length} คน · {tasks.filter(task => task.groupRoomId === room.id).length} งาน</span></div>
+              <div className="group-room-card-top"><span className="group-room-icon">♧</span><span className="group-room-count">{room.members.length} คน · {tasks.filter(task => task.groupRoomId === room.id).length} งาน</span></div>
               <h3>{room.name}</h3>
               <p className="group-room-code">รหัสห้อง <strong>{room.code}</strong><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(room.code); setGroupRoomMessage('คัดลอกรหัสห้องแล้ว') } catch { setGroupRoomMessage(`รหัสห้อง: ${room.code}`) } }}>คัดลอกรหัส</button></p>
-              <div className="group-room-invite-action"><button type="button" onClick={() => { setSelectedInviteRoomId(room.id); setInviteFormat('message'); setGroupRoomMessage(''); setActiveNav('เชิญเพื่อน') }}>✉ จัดการคำเชิญเพื่อน</button></div>
+              <div className="group-room-invite-action"><button type="button" onClick={() => { setSelectedWorkspaceRoomId(room.id); setGroupRoomMessage(''); setActiveNav('เชิญเพื่อน') }}>เข้าสู่ห้องทำงาน →</button></div>
               <div className="group-room-members"><strong>สมาชิกที่เข้าร่วมจริง</strong><div>{room.members.map(member => <span className="group-member-chip" key={`${room.dbId}-${member.userId}`}>👤 {member.userId === authSession?.user?.id ? 'คุณ' : `สมาชิก ${member.userId.slice(0, 6)}`} {member.role === 'owner' ? '(เจ้าของห้อง)' : ''}</span>)}</div></div>
               {room.ownerId === authSession?.user?.id && <button type="button" className="group-room-delete" onClick={async () => {
                 if (!window.confirm(`ต้องการลบห้อง “${room.name}” ใช่ไหม?`)) return
@@ -968,25 +948,44 @@ function App() {
           })}</div>}
         </section>}
 
-        {activeNav === 'เชิญเพื่อน' && <section className="panel invite-page">
-          <button type="button" className="task-back-button" onClick={() => setActiveNav('งานกลุ่ม')}>← กลับไปห้องงานกลุ่ม</button>
-          <div className="invite-page-hero">
-            <span className="invite-hero-icon">✉</span>
-            <div><span className="eyebrow">AEVORA · INVITATION STUDIO</span><h2>ชวนเพื่อนเข้าห้อง</h2><p>เลือกรูปแบบคำเชิญให้เหมาะกับที่ที่คุณจะส่ง แล้วคัดลอกหรือแชร์ได้ทันที</p></div>
-          </div>
-          {groupRooms.length === 0 ? <div className="invite-empty-state"><span>♧</span><h3>ยังไม่มีห้องให้ชวนเพื่อน</h3><p>สร้างห้องงานกลุ่มก่อน แล้วกลับมาทำคำเชิญได้ที่หน้านี้</p><button type="button" onClick={() => setActiveNav('งานกลุ่ม')}>ไปสร้างห้องงานกลุ่ม</button></div> : <>
-            <div className="invite-room-picker"><label htmlFor="invite-room-select">เลือกห้องที่ต้องการชวนเพื่อน</label><select id="invite-room-select" value={inviteRoom?.id ?? ''} onChange={event => setSelectedInviteRoomId(event.target.value ? Number(event.target.value) : null)}>{groupRooms.map(room => <option key={room.dbId} value={room.id}>{room.name}</option>)}</select><div className="invite-room-summary"><span>♧</span><div><strong>{inviteRoom?.name}</strong><small>{inviteRoom?.members.length ?? 0} สมาชิก · {inviteRoom ? tasks.filter(task => task.groupRoomId === inviteRoom.id).length : 0} งาน</small></div><b>รหัส {inviteRoom?.code}</b></div></div>
-            <div className="invite-format-heading"><div><h3>เลือกรูปแบบคำเชิญ</h3><p>เปลี่ยนรูปแบบได้ตลอดเวลา โดยไม่กระทบข้อมูลห้อง</p></div></div>
-            <div className="invite-format-grid">
-              <button type="button" className={`invite-format-card ${inviteFormat === 'link' ? 'selected' : ''}`} onClick={() => setInviteFormat('link')}><span>🔗</span><strong>ลิงก์เข้าห้อง</strong><small>เหมาะกับแชตหรือโพสต์ให้เพื่อนกดเข้า</small><b>{inviteFormat === 'link' ? '✓ เลือกอยู่' : 'เลือกรูปแบบนี้'}</b></button>
-              <button type="button" className={`invite-format-card ${inviteFormat === 'code' ? 'selected' : ''}`} onClick={() => setInviteFormat('code')}><span>🔑</span><strong>รหัสห้อง</strong><small>ส่งรหัสสั้น ๆ ให้เพื่อนกรอกใน Aevora</small><b>{inviteFormat === 'code' ? '✓ เลือกอยู่' : 'เลือกรูปแบบนี้'}</b></button>
-              <button type="button" className={`invite-format-card ${inviteFormat === 'message' ? 'selected' : ''}`} onClick={() => setInviteFormat('message')}><span>💌</span><strong>ข้อความพร้อมส่ง</strong><small>มีชื่อห้อง รหัส และลิงก์ในข้อความเดียว</small><b>{inviteFormat === 'message' ? '✓ เลือกอยู่' : 'เลือกรูปแบบนี้'}</b></button>
-            </div>
-            <div className="invite-preview-card"><div className="invite-preview-heading"><div><span className="eyebrow">PREVIEW</span><h3>ตัวอย่างคำเชิญของคุณ</h3></div><span className="invite-live-badge">อัปเดตตามรูปแบบ</span></div><textarea aria-label="ตัวอย่างคำเชิญ" value={inviteContent} readOnly rows={inviteFormat === 'message' ? 7 : 3}/><div className="invite-preview-actions"><button type="button" className="invite-primary-action" onClick={async () => { try { await navigator.clipboard.writeText(inviteContent); setGroupRoomMessage('คัดลอกคำเชิญแล้ว พร้อมนำไปส่งให้เพื่อน ✨') } catch { setGroupRoomMessage('คัดลอกอัตโนมัติไม่ได้ กรุณาเลือกข้อความในช่องแล้วคัดลอก') } }}>▣ คัดลอกคำเชิญ</button><button type="button" className="invite-secondary-action" onClick={async () => { try { if (navigator.share) await navigator.share({ title: `ชวนเข้าห้อง ${inviteRoom?.name || ''}`, text: inviteContent, url: inviteFormat === 'link' ? inviteLink : undefined }); else { await navigator.clipboard.writeText(inviteContent); setGroupRoomMessage('อุปกรณ์นี้ไม่รองรับแชร์โดยตรง จึงคัดลอกคำเชิญให้แล้ว') } } catch (error) { if (error instanceof Error && error.name !== 'AbortError') setGroupRoomMessage('แชร์ไม่สำเร็จ ลองกดคัดลอกคำเชิญแทนได้เลย') } }}>↗ แชร์จากอุปกรณ์</button></div>{groupRoomMessage && <p className="task-inline-message" role="status">{groupRoomMessage}</p>}<p className="invite-security-note">✦ เพื่อนต้องเข้าสู่ระบบ Aevora และเข้าร่วมด้วยรหัส/ลิงก์ก่อน จึงจะถือว่าเป็นสมาชิกห้อง</p></div>
-          </>}
-        </section>}
+        {activeNav === 'เชิญเพื่อน' && (() => {
+          const activeRoom = groupRooms.find(room => room.id === selectedWorkspaceRoomId) || null
+          const roomTasks = activeRoom ? tasks.filter(task => task.groupRoomId === activeRoom.id) : []
+          const completedRoomTasks = roomTasks.filter(task => task.done).length
+          const overallProgress = roomTasks.length ? Math.round(roomTasks.reduce((sum, task) => sum + getTaskProgress(task), 0) / roomTasks.length) : 0
+          return <section className="panel group-workspace-hub">
+            {activeRoom ? <>
+              <button type="button" className="task-back-button" onClick={() => setSelectedWorkspaceRoomId(null)}>← กลับไปห้องทำงานกลุ่ม</button>
+              <header className="group-overview-hero">
+                <div><span className="eyebrow">AEVORA · GROUP WORKSPACE</span><h2>{activeRoom.name}</h2><p>ภาพรวมงานของสมาชิกทุกคนในห้องนี้</p><span className="group-overview-code">รหัสห้อง {activeRoom.code}</span></div>
+                <div className="group-overview-progress"><strong>{overallProgress}%</strong><span>ความคืบหน้ารวม</span><div className="group-overview-track"><div style={{width: `${overallProgress}%`}} /></div><small>{completedRoomTasks} จาก {roomTasks.length} งานเสร็จแล้ว</small></div>
+              </header>
+              <div className="group-overview-stats"><div><strong>{activeRoom.members.length}</strong><span>สมาชิก</span></div><div><strong>{roomTasks.length}</strong><span>งานทั้งหมด</span></div><div><strong>{completedRoomTasks}</strong><span>งานเสร็จแล้ว</span></div><div><strong>{roomTasks.length - completedRoomTasks}</strong><span>งานที่เหลือ</span></div></div>
+              <section className="group-overview-section"><div className="group-overview-section-heading"><div><h3>สมาชิกในห้อง</h3><p>ดูว่าใครกำลังทำงานอะไรอยู่</p></div></div>
+                <div className="group-overview-members">{activeRoom.members.map(member => {
+                  const displayName = member.userId === authSession?.user?.id ? 'คุณ' : `สมาชิก ${member.userId.slice(0, 6)}`
+                  const memberTasks = roomTasks.filter(task => task.assignedTo && (task.assignedTo === member.userId || task.assignedTo === displayName || task.assignedTo.includes(member.userId.slice(0, 6))))
+                  const doneCount = memberTasks.filter(task => task.done).length
+                  const memberProgress = memberTasks.length ? Math.round(memberTasks.reduce((sum, task) => sum + getTaskProgress(task), 0) / memberTasks.length) : 0
+                  return <article className="group-overview-member" key={`${activeRoom.dbId}-${member.userId}`}><div className="group-overview-avatar">{member.userId === authSession?.user?.id ? '🌷' : '✨'}</div><div className="group-overview-member-main"><strong>{displayName}{member.role === 'owner' ? ' · โฮสต์' : ''}</strong><small>{memberTasks.length ? `${doneCount}/${memberTasks.length} งานเสร็จแล้ว` : 'ยังไม่มีงานที่ระบุผู้รับผิดชอบตรงกับสมาชิกนี้'}</small><div className="group-overview-track"><div style={{width: `${memberProgress}%`}} /></div></div><b>{memberProgress}%</b></article>
+                })}</div>
+              </section>
+              <section className="group-overview-section"><div className="group-overview-section-heading"><div><h3>งานทั้งหมดของกลุ่ม</h3><p>ทุกคนดูความคืบหน้าได้ แต่แก้ไขได้เฉพาะงานที่มีสิทธิ์</p></div><button type="button" onClick={() => { setTaskRoomId(activeRoom.id); setType('งานกลุ่ม'); setTitle(''); setSubject(''); setDescription(''); setAssignedTo(''); setDue(''); setEditingId(null); setSelectedTaskId(null); setShowForm(true); setActiveNav('งานกลุ่ม') }}>＋ เพิ่มงาน</button></div>
+                {roomTasks.length ? <div className="group-overview-task-list">{roomTasks.map(task => <article className="group-overview-task" key={task.id}><div className={`group-overview-task-status ${task.done ? 'is-done' : getTaskProgress(task) > 0 ? 'is-progress' : ''}`}>{task.done ? '✓' : getTaskProgress(task) > 0 ? '◷' : '○'}</div><div className="group-overview-task-main"><strong>{task.title}</strong><small>{task.subject || 'ไม่มีรายละเอียดวิชา'} · ผู้รับผิดชอบ: {task.assignedTo || 'ยังไม่ได้มอบหมาย'}</small><div className="group-overview-track"><div style={{width: `${getTaskProgress(task)}%`}} /></div></div><div className="group-overview-task-meta"><b>{getTaskProgress(task)}%</b><span>{task.done ? 'เสร็จสิ้น' : getTaskProgress(task) > 0 ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span><button type="button" onClick={() => { setSelectedTaskId(task.id); setShowForm(false); setActiveNav('งานกลุ่ม') }}>ดูงาน</button></div></article>)}</div> : <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีงานในห้องนี้</strong><p>เมื่อสร้างหรือแจกจ่ายงาน งานจะปรากฏในภาพรวมกลุ่มนี้</p><button type="button" onClick={() => { setTaskRoomId(activeRoom.id); setType('งานกลุ่ม'); setTitle(''); setSubject(''); setDescription(''); setAssignedTo(''); setDue(''); setEditingId(null); setSelectedTaskId(null); setShowForm(true); setActiveNav('งานกลุ่ม') }}>สร้างงานแรกของกลุ่ม</button></div>}
+              </section>
+            </> : <>
+              <div className="group-workspace-hub-heading"><div><span className="eyebrow">AEVORA · TEAM SPACE</span><h2>ห้องทำงานกลุ่ม</h2><p>เลือกห้องเพื่อดูความคืบหน้า งานของเพื่อน และสถานะของทั้งทีม</p></div><button type="button" onClick={() => setActiveNav('งานกลุ่ม')}>＋ สร้างหรือเข้าร่วมห้อง</button></div>
+              {groupRooms.length ? <div className="group-workspace-room-grid">{groupRooms.map(room => {
+                const roomTasksForCard = tasks.filter(task => task.groupRoomId === room.id)
+                const done = roomTasksForCard.filter(task => task.done).length
+                const progress = roomTasksForCard.length ? Math.round(roomTasksForCard.reduce((sum, task) => sum + getTaskProgress(task), 0) / roomTasksForCard.length) : 0
+                return <article className="group-workspace-room-card" key={room.dbId}><div className="group-workspace-room-card-top"><img src="/images/aevora-ui/group-room-icon.png" alt=""/><span>{room.members.length} สมาชิก</span></div><h3>{room.name}</h3><p>รหัสห้อง <strong>{room.code}</strong></p><div className="group-workspace-room-progress-label"><span>ความคืบหน้าของทีม</span><b>{progress}%</b></div><div className="group-overview-track"><div style={{width: `${progress}%`}} /></div><div className="group-workspace-room-card-footer"><span>{done}/{roomTasksForCard.length} งานเสร็จแล้ว</span><button type="button" onClick={() => setSelectedWorkspaceRoomId(room.id)}>เข้าสู่ห้องทำงาน →</button></div><div className="group-workspace-room-members">{room.members.slice(0, 4).map(member => <span key={member.userId} title={member.userId}>{member.userId === authSession?.user?.id ? '🌷 คุณ' : '✨ สมาชิก'}</span>)}{room.members.length > 4 && <span>+{room.members.length - 4}</span>}</div></article>
+              })}</div> : <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีห้องทำงานกลุ่ม</strong><p>สร้างห้องใหม่หรือเข้าร่วมด้วยรหัสห้องก่อน แล้วห้องจะแสดงอยู่ที่นี่</p><button type="button" onClick={() => setActiveNav('งานกลุ่ม')}>ไปสร้างหรือเข้าร่วมห้อง</button></div>}
+            </>}
+          </section>
+        })()}
 
-        {(activeNav === 'งานของฉัน' || activeNav === 'งานกลุ่ม') && !selectedTask && !showForm && <section className="panel tasks-panel task-manager"><div className="panel-heading"><div><h2>{activeNav === 'งานกลุ่ม' ? '♧ งานกลุ่ม' : '▣ งานของฉัน'}</h2><p className="muted">เพิ่ม แก้ไข ค้นหา และจัดการงานได้จากที่นี่</p></div><button className="create-task-image-button" aria-label="สร้างงานใหม่" onClick={() => { setSelectedTaskId(null); setEditingId(null); setTitle(''); setSubject(''); setDescription(''); setTaskRoomId(''); setAssignedTo(''); setType(activeNav === 'งานกลุ่ม' ? 'งานกลุ่ม' : 'งานเดี่ยว'); setDue(''); setShowForm(true) }}><span>สร้างงานใหม่</span></button></div>
+        {(activeNav === 'งานของฉัน' || activeNav === 'งานกลุ่ม') && !selectedTask && !showForm && <section className="panel tasks-panel task-manager"><div className="panel-heading"><div><h2>{activeNav === 'งานกลุ่ม' ? '♧ งานกลุ่ม' : '▣ งานของฉัน'}</h2><p className="muted">เพิ่ม แก้ไข ค้นหา และจัดการงานได้จากที่นี่</p></div><button className="text-button" onClick={() => { setSelectedTaskId(null); setEditingId(null); setTitle(''); setSubject(''); setDescription(''); setTaskRoomId(''); setAssignedTo(''); setType(activeNav === 'งานกลุ่ม' ? 'งานกลุ่ม' : 'งานเดี่ยว'); setDue(''); setShowForm(true) }}>+ สร้างงานใหม่</button></div>
 
           <input id="task-search" className="task-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาจากชื่องานหรือวิชา..." aria-label="ค้นหางาน"/><div className="task-filters filter-buttons">{(['ทั้งหมด', 'กำลังทำ', 'เสร็จแล้ว', 'งานเดี่ยว', 'งานกลุ่ม'] as Filter[]).map(item => <button key={item} className={filter === item ? 'filter-active' : ''} onClick={() => setFilter(item)}>{item}{item === 'ทั้งหมด' ? ` (${tasks.length})` : item === 'เสร็จแล้ว' ? ` (${completed})` : ''}</button>)}</div>
 

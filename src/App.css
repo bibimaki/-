@@ -3644,3 +3644,28 @@ body {
 .daily-quote-copy p, .daily-quote-copy small { color: #fff0ff; }
 @media (max-width: 1100px) { .growth-grid { grid-template-columns: 1fr; } .growth-art { height: 210px; } }
 @media (max-width: 760px) { .growth-card { padding: 15px; } .growth-card-heading h3 { font-size: 14px; } .growth-art { height: 180px; } }
+
+
+/* Streak artwork */
+.streak-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.streak-summary-art {
+  display: block;
+  width: 92px;
+  height: 92px;
+  flex: 0 0 92px;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 10px #d95b5b20);
+}
+.streak-summary > span {
+  flex: 0 0 auto;
+}
+@media (max-width: 600px) {
+  .streak-summary { gap: 10px; flex-wrap: wrap; }
+  .streak-summary-art { width: 68px; height: 68px; flex-basis: 68px; }
+  .streak-summary > span { font-size: 22px; }
+  .streak-summary > div { flex: 1 1 100%; }
+}

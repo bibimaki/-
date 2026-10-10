@@ -3669,3 +3669,81 @@ body {
   .streak-summary > span { font-size: 22px; }
   .streak-summary > div { flex: 1 1 100%; }
 }
+
+
+/* ===== Concept Mockup pages 5–10: safe visual refinements ===== */
+.work-type-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0 20px;
+}
+.work-type-choice {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+  text-align: left;
+  color: #392852;
+  border: 1px solid #eadcf7;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #fffafd, #f8f0ff);
+  box-shadow: 0 6px 20px #4b286b08;
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.work-type-choice:hover { transform: translateY(-2px); border-color: #c7a8ef; box-shadow: 0 10px 24px #7653c91a; }
+.work-type-choice.selected { border-color: #9770dc; background: linear-gradient(135deg, #f4eaff, #fff8fc); box-shadow: inset 0 0 0 1px #c9b0f0, 0 8px 24px #7653c918; }
+.work-type-art { display: grid; place-items: center; width: 84px; height: 84px; overflow: hidden; border-radius: 14px; background: #f0e5fc; }
+.work-type-art img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.work-type-choice strong, .work-type-choice small { display: block; }
+.work-type-choice strong { font-size: 15px; }
+.work-type-choice small { margin-top: 5px; color: #8a789b; font-size: 11px; line-height: 1.6; }
+.work-type-choice > b { align-self: start; padding: 5px 8px; border-radius: 999px; color: #8060bf; background: #eee3ff; font-size: 10px; white-space: nowrap; }
+.task-detail-page, .group-rooms-panel, .group-workspace-hub, .customization-page, .character-select-page {
+  border-color: #eadcf2;
+  background: linear-gradient(145deg, #fffdfd 0%, #fffaff 65%, #f8f0ff 100%);
+  box-shadow: 0 8px 28px #38204d0a;
+}
+.task-detail-heading { margin: 10px 0 18px; padding: 22px; border: 1px solid #eee1f7; border-radius: 18px; background: linear-gradient(115deg, #f5eaff, #fff8fb 65%, #f8efff); }
+.task-detail-heading h2 { margin: 6px 0; color: #302044; font-size: clamp(21px, 2.3vw, 30px); }
+.detail-edit-form { gap: 15px; }
+.detail-edit-form > label, .task-assignment-fields > label { gap: 7px; color: #59466e; font-weight: 600; }
+.detail-edit-form input:not([type="file"]), .detail-edit-form select, .detail-edit-form textarea {
+  min-height: 44px;
+  padding: 11px 13px;
+  border: 1px solid #e5d7f0;
+  border-radius: 11px;
+  color: #38284b;
+  background: #fff;
+  box-shadow: inset 0 1px 2px #40215105;
+}
+.detail-edit-form textarea { min-height: 110px; resize: vertical; }
+.detail-edit-form input:focus, .detail-edit-form select:focus, .detail-edit-form textarea:focus { border-color: #a989e1; outline: 3px solid #bda3f033; }
+.task-form-actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid #eee5f3; }
+.task-form-actions button[type="submit"] { min-height: 42px; padding: 10px 20px; border: 0; border-radius: 12px; color: #fff; background: linear-gradient(110deg, #8c68d7, #6c4bc1); box-shadow: 0 5px 14px #7653c926; }
+.group-room-create, .group-member-form { gap: 10px; }
+.group-room-create input, .group-member-form input { min-height: 46px; border-radius: 12px; border-color: #e7d9f2; }
+.group-room-create button, .group-member-form button { min-height: 46px; border-radius: 12px; }
+.group-room-grid { gap: 14px; }
+.group-room-card { border-radius: 18px; border-color: #eadcf4; background: linear-gradient(145deg, #fffdfd, #faf4ff); transition: transform .2s ease, box-shadow .2s ease; }
+.group-room-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px #4b286b12; }
+.group-room-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; background: #f0e5fc; }
+.group-room-invite-action button { min-height: 43px; border-radius: 12px; }
+.group-overview-hero { border-radius: 18px; }
+.group-overview-section { border-radius: 16px; }
+.group-overview-member { border-radius: 13px; }
+.customization-preview { border-radius: 20px; }
+.room-theme-card, .character-choice-card, .pet-choice-card { border-radius: 16px; transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
+.room-theme-card:hover, .character-choice-card:hover, .pet-choice-card:hover { transform: translateY(-2px); }
+.task-detail-card, .task-description-card, .subtask-panel { border-radius: 15px; }
+.task-attachment-list li { border-radius: 11px; }
+.task-back-button { border-radius: 11px; }
+@media (max-width: 760px) {
+  .work-type-choice-grid { grid-template-columns: 1fr; gap: 10px; }
+  .work-type-choice { grid-template-columns: 66px minmax(0, 1fr); padding: 11px; gap: 11px; }
+  .work-type-art { width: 66px; height: 66px; grid-row: span 2; }
+  .work-type-choice > b { grid-column: 2; justify-self: start; }
+  .task-detail-heading { padding: 16px; }
+}

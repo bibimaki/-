@@ -1200,6 +1200,18 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
             <h2>{isCreating ? 'สร้างงานใหม่' : 'แก้ไขรายละเอียดงาน'}</h2>
             <p className="muted">{isCreating ? 'กรอกรายละเอียดงานของคุณ แล้วบันทึกเพื่อเริ่มต้น' : 'เปลี่ยนเฉพาะข้อมูลที่ต้องการ แล้วกดบันทึก'}</p>
           </div>
+          {isCreating && <div className="work-type-choice-grid" aria-label="เลือกประเภทงาน">
+            <button type="button" className={`work-type-choice ${type === 'งานเดี่ยว' ? 'selected' : ''}`} onClick={() => setType('งานเดี่ยว')} aria-pressed={type === 'งานเดี่ยว'}>
+              <span className="work-type-art"><img src="/images/aevora-ui/button-create-task.png" alt="" /></span>
+              <span><strong>งานเดี่ยว</strong><small>จัดการเป้าหมายและงานย่อยของตัวเอง</small></span>
+              <b>{type === 'งานเดี่ยว' ? 'เลือกแล้ว' : 'เลือก'}</b>
+            </button>
+            <button type="button" className={`work-type-choice ${type === 'งานกลุ่ม' ? 'selected' : ''}`} onClick={() => setType('งานกลุ่ม')} aria-pressed={type === 'งานกลุ่ม'}>
+              <span className="work-type-art"><img src="/images/aevora-ui/group-room-icon.png" alt="" /></span>
+              <span><strong>งานกลุ่ม</strong><small>แบ่งงานและติดตามความคืบหน้าร่วมกัน</small></span>
+              <b>{type === 'งานกลุ่ม' ? 'เลือกแล้ว' : 'เลือก'}</b>
+            </button>
+          </div>}
           <form className="new-task-form task-edit-form detail-edit-form" onSubmit={saveTask}>
             <label>ชื่องาน *<input value={title} onChange={event => setTitle(event.target.value)} placeholder="เช่น ทำรายงานบทที่ 1" required maxLength={120} /></label>
             <label>วิชา / โปรเจกต์<input value={subject} onChange={event => setSubject(event.target.value)} placeholder="เช่น วิทยาศาสตร์" maxLength={100} /></label>

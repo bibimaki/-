@@ -490,9 +490,23 @@ function App() {
       setShowGroupProjectForm(false)
       setGroupRoomMessage(`บันทึกและแบ่งงานโปรเจกต์ “${newTasks[0].subject}” สำเร็จ ${newTasks.length} งาน`)
     } catch (error) {
-      console.error('บันทึกงานกลุ่มลง Supabase ไม่สำเร็จ:', error)
-      const detail = error instanceof Error ? error.message : 'ไม่ทราบสาเหตุ'
-      setGroupRoomMessage(`บันทึกงานไม่สำเร็จ: ${detail} — ตรวจสอบตาราง group_tasks, unique constraint (room_id, task_key) และ RLS policy ใน Supabase`)
+      // Supabase/PostgREST errors are plain objects, not always Error instances.
+      // Show the actual database message, code, details, and hint.
+      const dbError = error as { message?: string; details?: string; hint?: string; code?: string }
+      console.error('บันทึกงานกลุ่มลง Supabase ไม่สำเร็จ:', {
+        message: dbError?.message,
+        details: dbError?.details,
+        hint: dbError?.hint,
+        code: dbError?.code,
+        raw: error,
+      })
+      const detail = [
+        dbError?.message,
+        dbError?.details,
+        dbError?.hint,
+        dbError?.code ? `รหัส ${dbError.code}` : '',
+      ].filter(Boolean).join(' | ') || String(error)
+      setGroupRoomMessage(`บันทึกงานไม่สำเร็จ: ${detail} — เปิด Console เพื่อดูรายละเอียดเพิ่มเติม`)
       setCloudStatus('บันทึกงานกลุ่มไม่สำเร็จ')
     } finally {
       setGroupRoomBusy(false)

@@ -475,8 +475,10 @@ function App() {
     if (!window.confirm(`ต้องการออกจากห้อง “${room.name}” ใช่ไหม?`)) return
     setGroupRoomBusy(true)
     try {
-      const { error } = await supabase.from('group_members').delete().eq('room_id', room.dbId).eq('user_id', authSession.user.id)
+      const { data: removedMembership, error } = await supabase.from('group_members')
+        .delete().eq('room_id', room.dbId).eq('user_id', authSession.user.id).select('user_id')
       if (error) throw error
+      if (!removedMembership?.length) throw new Error('ออกจากห้องไม่สำเร็จ: ไม่พบสมาชิกของคุณในฐานข้อมูล หรือ RLS ไม่อนุญาตให้ลบ')
       setGroupRooms(current => current.filter(item => item.dbId !== room.dbId))
       // A member who leaves should no longer see that room's tasks; other members'
       // shared rows remain untouched in Supabase for the remaining room members.
@@ -1097,15 +1099,46 @@ function App() {
   }, [title, subject, type, due, description, groupProjectTitle, groupProjectDescription, groupProjectDueDate, groupProjectItems])
 
   async function notifyTelegram(roomId: string, eventType: string, message: string) {
-    if (!authSession?.access_token) return
+    if (!authSession?.access_token) {
+      console.warn('ส่ง Telegram ไม่ได้: ยังไม่มี access token')
+      return
+    }
     try {
       const response = await fetch('/api/telegram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authSession.access_token}` },
         body: JSON.stringify({ action: 'notify', roomId, eventType, message }),
       })
-      if (!response.ok) console.warn('ส่ง Telegram notification ไม่สำเร็จ:', await response.text())
-    } catch (error) { console.warn('Telegram notification ยังไม่พร้อมใช้งาน:', error) }
+      const result = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; sent?: number; skipped?: boolean }
+      if (!response.ok || result.ok === false) {
+        console.error('ส่ง Telegram notification ไม่สำเร็จ:', result.error || `HTTP ${response.status}`)
+        setTelegramMessage(`ส่งแจ้งเตือนไม่สำเร็จ: ${result.error || `HTTP ${response.status}`}`)
+      } else if (result.skipped) {
+        console.info('Telegram notification ถูกข้าม: ผู้รับยังไม่ได้เปิดรับแจ้งเตือน')
+      }
+    } catch (error) {
+      console.error('Telegram notification ยังไม่พร้อมใช้งาน:', error)
+      setTelegramMessage('ส่งแจ้งเตือนไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อและ API')
+    }
+  }
+
+  async function notifyPersonalTelegram(message: string) {
+    if (!authSession?.access_token) return
+    try {
+      const response = await fetch('/api/telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authSession.access_token}` },
+        body: JSON.stringify({ action: 'personal_notify', message }),
+      })
+      const result = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; skipped?: boolean }
+      if (!response.ok || result.ok === false) {
+        console.error('ส่ง Telegram แจ้งเตือนส่วนตัวไม่สำเร็จ:', result.error || `HTTP ${response.status}`)
+        setTelegramMessage(`ส่งแจ้งเตือนไม่สำเร็จ: ${result.error || `HTTP ${response.status}`}`)
+      }
+    } catch (error) {
+      console.error('Telegram personal notification error:', error)
+      setTelegramMessage('ส่งแจ้งเตือน Telegram ไม่สำเร็จ กรุณาตรวจสอบ API')
+    }
   }
 
   async function saveTelegramOptIn() {
@@ -1243,7 +1276,12 @@ function App() {
     } else {
       const newId = Date.now()
       setTasks(current => [...current, { id: newId, title: title.trim(), subject: subject.trim() || 'งานทั่วไป', type, due: dueText, dueDate: due || undefined, description: description.trim(), groupRoomId: type === 'งานกลุ่ม' && taskRoomId !== '' ? taskRoomId : undefined, assignedTo: type === 'งานกลุ่ม' ? (assignedTo.trim() || undefined) : undefined, createdBy: type === 'งานกลุ่ม' ? authSession?.user?.id : undefined, subtasks: [], progress: 0, done: false }])
-      if (type === 'งานกลุ่ม' && taskRoomId !== '') { const room = groupRooms.find(item => item.id === taskRoomId); if (room) void notifyTelegram(room.dbId, 'tasks_assigned', `มีการมอบหมายงาน “${title.trim()}” ในห้อง “${room.name}”`) }
+      if (type === 'งานกลุ่ม' && taskRoomId !== '') {
+        const room = groupRooms.find(item => item.id === taskRoomId)
+        if (room) void notifyTelegram(room.dbId, 'tasks_assigned', `มีการมอบหมายงาน “${title.trim()}” ในห้อง “${room.name}”`)
+      } else if (type === 'งานเดี่ยว') {
+        void notifyPersonalTelegram(`สร้างงานเดี่ยวใหม่: “${title.trim()}”${due ? ` กำหนดส่ง ${dueText}` : ''}`)
+      }
       setSelectedTaskId(newId)
     }
 
@@ -1636,12 +1674,16 @@ function App() {
                 try {
                   // Delete dependent rows explicitly so this works even when the
                   // database has no ON DELETE CASCADE foreign keys configured.
-                  const { error: tasksError } = await supabase.from('group_tasks').delete().eq('room_id', room.dbId)
+                  const { data: deletedTasks, error: tasksError } = await supabase.from('group_tasks')
+                    .delete().eq('room_id', room.dbId).select('id')
                   if (tasksError) throw tasksError
-                  const { error: membersError } = await supabase.from('group_members').delete().eq('room_id', room.dbId)
+                  const { data: deletedMembers, error: membersError } = await supabase.from('group_members')
+                    .delete().eq('room_id', room.dbId).select('user_id')
                   if (membersError) throw membersError
-                  const { error: roomError } = await supabase.from('group_rooms').delete().eq('id', room.dbId).eq('owner_id', authSession.user.id)
+                  const { data: deletedRoom, error: roomError } = await supabase.from('group_rooms')
+                    .delete().eq('id', room.dbId).eq('owner_id', authSession.user.id).select('id')
                   if (roomError) throw roomError
+                  if (!deletedRoom?.length) throw new Error('ลบห้องไม่สำเร็จ: ไม่มีสิทธิ์ลบห้อง (ตรวจสอบ RLS ของ group_rooms)')
                   setGroupRooms(current => current.filter(item => item.dbId !== room.dbId))
                   setTasks(current => current.filter(task => !(task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)))
                   if (selectedWorkspaceRoomId === room.id) setSelectedWorkspaceRoomId(null)

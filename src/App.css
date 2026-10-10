@@ -3722,56 +3722,252 @@ body {
 .group-room-delete:disabled{opacity:.5}
 @media(max-width:650px){.group-project-start{align-items:stretch;flex-direction:column}.group-project-item{grid-template-columns:1fr}.group-project-form{padding:15px}}
 
-/* Aevora reliability patch: profile image and stale-task cleanup UI */
-.avatar img,
-.profile-avatar-large img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: inherit;
-}
-.profile-image-upload {
-  display: grid;
-  gap: 10px;
-  padding: 16px;
-  border: 1px solid #e8def3;
-  border-radius: 14px;
-  background: #fffaff;
-}
-.profile-image-upload > label:first-child {
-  color: #51406b;
-  font-size: 13px;
-  font-weight: 700;
-}
-.profile-image-upload > input[type="file"] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-.profile-image-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-.profile-image-upload small {
-  color: #847791;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.profile-image-upload .profile-primary-button,
-.profile-image-upload .backup-import-button {
-  width: max-content;
-  max-width: 100%;
-  margin: 0;
-}
-@media (max-width: 560px) {
-  .profile-image-actions { display: grid; grid-template-columns: 1fr; }
-  .profile-image-upload .profile-primary-button,
-  .profile-image-upload .backup-import-button { width: 100%; }
+/* ===== AEVORA COMPACT TASK MANAGER ===== */
+
+/* ลดความสูงและช่องว่างของแต่ละรายการงาน */
+.task-manager .task-row,
+.task-row {
+  min-height: 56px !important;
+  gap: 7px !important;
+  padding: 8px 10px !important;
 }
 
-  
+/* ลดขนาดชื่อและรายละเอียดงาน */
+.task-manager .task-info strong,
+.task-info strong {
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+}
+
+.task-manager .task-info small,
+.task-info small {
+  font-size: 10px !important;
+  margin-top: 2px !important;
+}
+
+/* ลดขนาดปุ่มแก้ไขและลบ */
+.task-row .task-actions button,
+.task-manager .task-actions button {
+  padding: 5px 8px !important;
+  font-size: 10px !important;
+}
+
+/* ลดขนาดป้ายประเภทงาน */
+.task-row .task-type {
+  padding: 4px 6px !important;
+  font-size: 9px !important;
+}
+
+/* ลดขนาดแถบความคืบหน้า */
+.task-row .task-progress .mini-track {
+  width: 35px !important;
+  min-width: 25px !important;
+}
+
+.task-row .task-progress small {
+  font-size: 9px !important;
+  min-width: 25px !important;
+}
+
+/* ลดขนาดช่องค้นหา */
+.task-search input {
+  padding: 8px 10px !important;
+  font-size: 12px !important;
+}
+
+/* ลดขนาดปุ่มตัวกรอง */
+.filter-buttons button {
+  padding: 6px 10px !important;
+  font-size: 11px !important;
+}
+
+/* หน้าจอแคบ */
+@media (max-width: 1100px) {
+  .task-row {
+    min-height: 0 !important;
+    padding: 8px !important;
+  }
+
+  .task-row .task-actions button {
+    padding: 5px 8px !important;
+  }
+}
+
+/* ===== AEVORA PET ROOM ===== */
+.pet-room-page { gap: 24px; }
+.pet-room-showcase { display: grid; grid-template-columns: minmax(220px, .9fr) minmax(0, 1.1fr); align-items: center; gap: clamp(18px, 3vw, 34px); padding: clamp(16px, 3vw, 30px); border: 1px solid #e7d8f7; border-radius: 26px; background: radial-gradient(circle at 15% 10%, #fffaff, #f4eaff 54%, #ece8ff); }
+.pet-room-art { position: relative; min-height: 270px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; overflow: hidden; border: 1px solid #ffffffc9; border-radius: 22px; background: radial-gradient(circle at 50% 40%, #fff 0, #f6eaff 50%, #e7dcff 100%); box-shadow: inset 0 0 0 1px #eadcf8, 0 12px 28px #7e5ca51c; }
+.pet-room-art:before { content: ''; position: absolute; width: 180px; height: 180px; border-radius: 50%; background: #fff9ff9c; filter: blur(5px); }
+.pet-room-art img { position: relative; z-index: 1; width: min(76%, 240px); height: 210px; object-fit: contain; filter: drop-shadow(0 9px 9px #74539732); animation: pet-room-float 3s ease-in-out infinite; }
+.pet-room-status { position: relative; z-index: 2; padding: 6px 12px; border: 1px solid #e4d4f4; border-radius: 999px; background: #ffffffdb; color: #795b99; font-size: 12px; font-weight: 700; text-align: center; }
+.pet-room-sparkle { position: absolute; color: #c09be9; font-size: 25px; animation: pet-room-twinkle 2.4s ease-in-out infinite; }
+.sparkle-one { left: 14%; top: 18%; }.sparkle-two { right: 13%; top: 28%; animation-delay: .8s; }
+.pet-action-play img { animation: pet-room-hop .65s ease-in-out 2; }.pet-action-feed img { transform: scale(1.04); }.pet-action-rest img { animation: pet-room-rest 3s ease-in-out infinite; }
+.pet-room-info { min-width: 0; }
+.pet-room-info h3 { margin: 6px 0 8px; color: #50366e; font-size: clamp(25px, 3vw, 34px); }
+.pet-room-info > p { margin: 0 0 20px; color: #89759f; font-size: 14px; line-height: 1.7; }
+.pet-level-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; color: #644982; }
+.pet-level-row strong { font-size: 17px; }.pet-level-row span { font-size: 12px; color: #8c76a5; }
+.pet-exp-track { height: 13px; overflow: hidden; border: 1px solid #e2d2f5; border-radius: 999px; background: #e8ddf5; }
+.pet-exp-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #aa84e9, #f0a9d9); transition: width .35s ease; }
+.pet-exp-numbers { display: block; margin-top: 7px; color: #8b77a2; font-size: 12px; }
+.pet-upgrade-button { margin-top: 16px; padding: 11px 16px; border: 0; border-radius: 13px; background: linear-gradient(120deg, #956ad9, #d78fcf); color: white; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; box-shadow: 0 7px 17px #a781d83d; }
+.pet-max-level-note { margin-top: 14px; padding: 11px 13px; border: 1px solid #ead4f8; border-radius: 12px; background: #fff9ffb8; color: #805caa; font-weight: 700; }
+.pet-wallet-card { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border: 1px solid #e8dcf5; border-radius: 18px; background: linear-gradient(110deg, #fffaff, #f4edff); }
+.pet-wallet-icon { display: grid; flex: 0 0 46px; width: 46px; height: 46px; place-items: center; border-radius: 15px; background: #e9dcff; font-size: 23px; }
+.pet-wallet-card div { display: grid; gap: 3px; }.pet-wallet-card small { color: #8c77a2; font-size: 11px; }.pet-wallet-card strong { color: #65448a; font-size: 19px; }.pet-wallet-card p { margin: 0 0 0 auto; max-width: 48%; color: #9582a8; font-size: 11px; line-height: 1.6; }
+.pet-activity-section { display: grid; gap: 14px; }.pet-activity-section h3 { margin: 0 0 5px; color: #573a76; }.pet-activity-section .muted { margin: 0; }
+.pet-activity-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.pet-activity-card { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 18px; border: 1px solid #e8dcf4; border-radius: 20px; background: linear-gradient(160deg, #fff, #fcf7ff); box-shadow: 0 8px 22px #795b9910; }
+.pet-activity-icon { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 15px; background: #f1e7ff; font-size: 24px; }
+.pet-activity-card h4 { margin: 12px 0 5px; color: #654681; font-size: 16px; }.pet-activity-card p { min-height: 42px; margin: 0; color: #9481a7; font-size: 12px; line-height: 1.65; }
+.pet-activity-cost { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 7px; width: 100%; margin: 15px 0 13px; font-size: 11px; }.pet-activity-cost span { color: #9b85af; }.pet-activity-cost strong { color: #9463c8; }
+.pet-activity-card button { width: 100%; margin-top: auto; padding: 10px 12px; border: 1px solid #d9c5f1; border-radius: 12px; background: linear-gradient(110deg, #f0e5ff, #fce9f7); color: #684789; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; transition: transform .18s ease, opacity .18s ease; }
+.pet-activity-card button:hover:not(:disabled) { transform: translateY(-2px); }.pet-activity-card button:disabled { opacity: .45; cursor: not-allowed; }
+.pet-action-notice { margin: 0; padding: 12px 15px; border: 1px solid #e8d9f5; border-radius: 13px; background: #fcf7ff; color: #795b96; font-size: 13px; }
+/* The room preview now gives the pet its own space, with labels below it. */
+.customization-preview { min-height: 350px; gap: 10px; padding: 24px 20px 28px; }
+.customization-preview .preview-room-icon { margin-top: 8px; }
+.customization-preview .preview-character { width: 110px; height: 130px; flex: 0 0 auto; }
+.customization-preview .preview-pet { position: relative; right: auto; bottom: auto; width: clamp(145px, 20vw, 220px); height: clamp(145px, 20vw, 220px); margin: -6px 0 0; flex: 0 0 auto; }
+.customization-preview .preview-pet img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 8px 10px #4b2b7338); }
+.customization-preview h3 { margin-top: 6px; font-size: clamp(18px, 2vw, 23px); line-height: 1.4; }
+.customization-preview p { max-width: 100%; font-size: clamp(12px, 1.2vw, 14px); line-height: 1.7; }
+.customization-preview .preview-character { margin-bottom: -4px; }
+@keyframes pet-room-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes pet-room-hop { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-18px) rotate(-4deg); } }
+@keyframes pet-room-rest { 0%,100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(4px) rotate(2deg); } }
+@keyframes pet-room-twinkle { 0%,100% { opacity: .45; transform: scale(.85); } 50% { opacity: 1; transform: scale(1.12); } }
+@media (max-width: 760px) { .pet-room-showcase { grid-template-columns: minmax(0, 1fr); }.pet-room-art { min-height: 250px; }.pet-room-art img { height: 185px; }.pet-activity-grid { grid-template-columns: minmax(0, 1fr); }.pet-activity-card p { min-height: 0; }.pet-wallet-card { flex-wrap: wrap; }.pet-wallet-card p { max-width: 100%; width: 100%; margin-left: 60px; }.customization-preview { min-height: 320px; }.customization-preview .preview-pet { width: 150px; height: 150px; } }
+.pet-insufficient-note { display: block; width: 100%; margin-top: 8px; color: #b56b91; font-size: 10px; line-height: 1.5; text-align: center; }
+
+/* Group-work host review flow */
+.task-review-submit,
+.task-review-pending {
+  margin: 14px 0;
+  padding: 16px 18px;
+  border: 1px solid rgba(139, 99, 203, .28);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(246, 239, 255, .96), rgba(255, 242, 249, .96));
+  color: #4a326b;
+}
+.task-review-submit strong,
+.task-review-pending strong { display: block; font-weight: 800; }
+.task-review-submit p,
+.task-review-pending p { margin: 5px 0 12px; color: #77668c; font-size: .9rem; }
+.task-review-submit button,
+.task-review-pending button { border: 0; border-radius: 10px; padding: 10px 16px; background: linear-gradient(120deg, #8c64ce, #bd7bd7); color: #fff; font-weight: 750; cursor: pointer; }
+.telegram-beta-section { border: 1px solid rgba(100, 73, 157, .22); border-radius: 18px; padding: 18px; background: linear-gradient(135deg, #faf5ff, #fff6fa); }
+.telegram-opt-in { display: flex !important; align-items: center; gap: 10px; }
+.telegram-opt-in input { width: 18px; height: 18px; }
+.group-review-queue { border-top: 5px solid #d79acb !important; background: linear-gradient(180deg, #fff5fc 0%, #fff 55%) !important; }
+.group-review-queue-list { display: grid; gap: 10px; margin-top: 12px; }
+.group-review-queue-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px; border: 1px solid #ead7f0; border-radius: 14px; background: #fff; }
+.group-review-queue-item > div:first-child { display: grid; gap: 5px; min-width: 0; }
+.group-review-queue-item strong { color: #3f2a5f; }
+.group-review-queue-item small { color: #78688a; }
+.group-review-queue-item span { color: #9760ad; font-size: .85rem; font-weight: 700; }
+.group-review-queue-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.group-review-queue-actions button { border: 1px solid #d9c3ec; border-radius: 9px; padding: 8px 11px; background: #f7f0ff; color: #65438d; font-weight: 700; cursor: pointer; }
+.group-review-queue-actions button:last-child { background: linear-gradient(120deg, #8c64ce, #bd7bd7); color: #fff; border-color: transparent; }
+@media (max-width: 700px) { .group-review-queue-item { align-items: stretch; flex-direction: column; } .group-review-queue-actions button { flex: 1; } }
+
+
+/* Per-pet names and rest cooldown */
+.pet-name-field { display: grid; gap: 7px; margin: 12px 0; color: #5d477c; font-weight: 700; }
+.pet-name-field input { width: 100%; box-sizing: border-box; border: 1px solid #d9c8ef; border-radius: 12px; padding: 11px 13px; background: #fffaff; color: #392650; font: inherit; }
+.pet-name-field small { color: #8b79a2; font-size: .82rem; font-weight: 500; }
+
+
+/* User-supplied decorative artwork for pet activities and task types. Sidebar navigation icons remain unchanged. */
+.pet-activity-icon { width: 76px; height: 76px; border-radius: 18px; overflow: visible; background: transparent; }
+.pet-activity-icon img { display: block; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 3px 5px rgba(119, 75, 153, .12)); }
+.task-type { display: inline-flex; align-items: center; gap: 5px; }
+.task-type-art { width: 28px; height: 28px; object-fit: contain; flex: 0 0 auto; vertical-align: middle; }
+.group-room-icon { width: 54px; height: 54px; background: transparent; overflow: visible; }
+.group-room-icon img { width: 100%; height: 100%; object-fit: contain; }
+.task-section-title { display: flex; align-items: center; gap: 9px; }
+.task-section-title img { width: 54px; height: 54px; object-fit: contain; flex: 0 0 auto; }
+@media (max-width: 700px) { .pet-activity-icon { width: 62px; height: 62px; } .task-type-art { width: 23px; height: 23px; } .task-section-title img { width: 42px; height: 42px; } .group-room-icon { width: 44px; height: 44px; } }
+/* เพิ่มส่วนนี้ไว้ท้าย src/App.css เพื่อจัดไอคอนลอยและต้นไม้ตกแต่ง */
+
+/* ไอคอน EXP ในแถบเลเวล */
+.exp-orb-image {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  background: transparent;
+}
+
+.exp-orb-image img {
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  animation: aevora-icon-float 3s ease-in-out infinite;
+  filter: drop-shadow(0 4px 7px rgba(115, 65, 170, 0.22));
+}
+
+/* ไอคอนแทนอีโมจิในสถิติ */
+.stat-icon-image {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  line-height: 1;
+}
+
+.stat-icon-image img {
+  display: block;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  animation: aevora-icon-float 3.2s ease-in-out infinite;
+  filter: drop-shadow(0 4px 7px rgba(115, 65, 170, 0.2));
+}
+
+/* ต้นไม้จิ๋วด้านหลังหัวข้อทักทาย */
+.welcome-title-wrap {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.welcome-title {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+}
+
+.welcome-tree {
+  position: absolute;
+  z-index: 0;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  line-height: 1;
+  right: -25px;
+  top: -18px;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+@keyframes aevora-icon-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@media (max-width: 600px) {
+  .exp-orb-image img { width: 40px; height: 40px; }
+  .stat-icon-image img { width: 34px; height: 34px; }
+  .welcome-tree { width: 30px; height: 30px; right: -18px; top: -12px; font-size: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exp-orb-image img,
+  .stat-icon-image img { animation: none; }
+}

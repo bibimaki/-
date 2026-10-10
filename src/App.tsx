@@ -421,9 +421,14 @@ function App() {
     setGroupRoomMessage(`จบงาน “${task.title}” แล้ว`)
   }
 
-  function createGroupProject(event: FormEvent<HTMLFormElement>, room: GroupRoom) {
+  async function createGroupProject(event: FormEvent<HTMLFormElement>, room: GroupRoom) {
     event.preventDefault()
-    if (room.ownerId !== authSession?.user?.id) return
+    const userId = authSession?.user?.id
+    if (room.ownerId !== userId || !userId) return
+    if (!supabase || !cloudReady || !room.dbId) {
+      setGroupRoomMessage('ยังเชื่อมต่อฐานข้อมูลไม่พร้อม กรุณารอสักครู่แล้วลองใหม่')
+      return
+    }
     if (room.members.length < 2) {
       setGroupRoomMessage('ต้องมีสมาชิกอย่างน้อย 2 คนในห้อง จึงจะเริ่มแบ่งงานได้')
       return
@@ -433,6 +438,11 @@ function App() {
       setGroupRoomMessage('กรอกชื่อโปรเจกต์ และเพิ่มงานพร้อมผู้รับผิดชอบอย่างน้อย 1 งาน')
       return
     }
+    if (cleanItems.some(item => !room.members.some(member => member.userId === item.assignedTo))) {
+      setGroupRoomMessage('พบผู้รับผิดชอบที่ไม่ได้เป็นสมาชิกในห้อง กรุณาเลือกสมาชิกใหม่')
+      return
+    }
+
     const newTasks: Task[] = cleanItems.map((item, index) => ({
       id: Date.now() + index,
       title: item.title.trim(),
@@ -446,13 +456,47 @@ function App() {
       progress: 0,
       done: false,
     }))
-    setTasks(current => [...current, ...newTasks])
-    setGroupProjectTitle('')
-    setGroupProjectDescription('')
-    setGroupProjectDueDate('')
-    setGroupProjectItems([{ title: '', assignedTo: '' }])
-    setShowGroupProjectForm(false)
-    setGroupRoomMessage(`แบ่งงานโปรเจกต์ “${newTasks[0].subject}” ให้สมาชิกแล้ว`)
+
+    setGroupRoomBusy(true)
+    setGroupRoomMessage('กำลังบันทึกงานลงฐานข้อมูล…')
+    try {
+      // Write to Supabase first. Do not report success or clear the form until every
+      // task has been saved; otherwise the UI can look successful while the DB is empty.
+      for (const task of newTasks) {
+        const { error } = await supabase.from('group_tasks').upsert({
+          room_id: room.dbId,
+          created_by: userId,
+          task_key: String(task.id),
+          task_data: {
+            id: task.id,
+            title: task.title,
+            subject: task.subject,
+            type: 'งานกลุ่ม',
+            due: task.due,
+            dueDate: task.dueDate,
+            description: task.description,
+            assignedTo: task.assignedTo,
+            progress: task.progress,
+            done: task.done,
+          },
+        }, { onConflict: 'room_id,task_key' })
+        if (error) throw error
+      }
+      setTasks(current => [...current.filter(existing => !newTasks.some(created => created.id === existing.id)), ...newTasks])
+      setGroupProjectTitle('')
+      setGroupProjectDescription('')
+      setGroupProjectDueDate('')
+      setGroupProjectItems([{ title: '', assignedTo: userId }])
+      setShowGroupProjectForm(false)
+      setGroupRoomMessage(`บันทึกและแบ่งงานโปรเจกต์ “${newTasks[0].subject}” สำเร็จ ${newTasks.length} งาน`)
+    } catch (error) {
+      console.error('บันทึกงานกลุ่มลง Supabase ไม่สำเร็จ:', error)
+      const detail = error instanceof Error ? error.message : 'ไม่ทราบสาเหตุ'
+      setGroupRoomMessage(`บันทึกงานไม่สำเร็จ: ${detail} — ตรวจสอบตาราง group_tasks, unique constraint (room_id, task_key) และ RLS policy ใน Supabase`)
+      setCloudStatus('บันทึกงานกลุ่มไม่สำเร็จ')
+    } finally {
+      setGroupRoomBusy(false)
+    }
   }
 
   // Load shared group tasks only after the signed-in user's rooms are available.
@@ -1173,7 +1217,7 @@ function App() {
                   </select>
                   {groupProjectItems.length > 1 && <button type="button" aria-label="ลบหัวข้องาน" onClick={() => setGroupProjectItems(items => items.filter((_, rowIndex) => rowIndex !== index))}>ลบ</button>}
                 </div>)}
-                <div className="group-project-form-actions"><button type="button" className="text-button" onClick={() => setShowGroupProjectForm(false)}>ยกเลิก</button><button type="submit">เริ่มแบ่งงานทั้งหมด</button></div>
+                <div className="group-project-form-actions"><button type="button" className="text-button" onClick={() => setShowGroupProjectForm(false)}>ยกเลิก</button><button type="submit" disabled={groupRoomBusy}>{groupRoomBusy ? 'กำลังบันทึก…' : 'เริ่มแบ่งงานทั้งหมด'}</button></div>
               </form>}
               <div className="group-overview-stats"><div><strong>{activeRoom.members.length}</strong><span>สมาชิก</span></div><div><strong>{roomTasks.length}</strong><span>งานทั้งหมด</span></div><div><strong>{completedRoomTasks}</strong><span>งานเสร็จแล้ว</span></div><div><strong>{roomTasks.length - completedRoomTasks}</strong><span>งานที่เหลือ</span></div></div>
               <section className="group-overview-section"><div className="group-overview-section-heading"><div><h3>สมาชิกในห้อง</h3><p>ดูว่าใครกำลังทำงานอะไรอยู่</p></div></div>

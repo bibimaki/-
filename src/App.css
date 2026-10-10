@@ -3840,3 +3840,34 @@ body {
 @keyframes pet-room-twinkle { 0%,100% { opacity: .45; transform: scale(.85); } 50% { opacity: 1; transform: scale(1.12); } }
 @media (max-width: 760px) { .pet-room-showcase { grid-template-columns: minmax(0, 1fr); }.pet-room-art { min-height: 250px; }.pet-room-art img { height: 185px; }.pet-activity-grid { grid-template-columns: minmax(0, 1fr); }.pet-activity-card p { min-height: 0; }.pet-wallet-card { flex-wrap: wrap; }.pet-wallet-card p { max-width: 100%; width: 100%; margin-left: 60px; }.customization-preview { min-height: 320px; }.customization-preview .preview-pet { width: 150px; height: 150px; } }
 .pet-insufficient-note { display: block; width: 100%; margin-top: 8px; color: #b56b91; font-size: 10px; line-height: 1.5; text-align: center; }
+
+/* Group-work host review flow */
+.task-review-submit,
+.task-review-pending {
+  margin: 14px 0;
+  padding: 16px 18px;
+  border: 1px solid rgba(139, 99, 203, .28);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(246, 239, 255, .96), rgba(255, 242, 249, .96));
+  color: #4a326b;
+}
+.task-review-submit strong,
+.task-review-pending strong { display: block; font-weight: 800; }
+.task-review-submit p,
+.task-review-pending p { margin: 5px 0 12px; color: #77668c; font-size: .9rem; }
+.task-review-submit button,
+.task-review-pending button { border: 0; border-radius: 10px; padding: 10px 16px; background: linear-gradient(120deg, #8c64ce, #bd7bd7); color: #fff; font-weight: 750; cursor: pointer; }
+.telegram-beta-section { border: 1px solid rgba(100, 73, 157, .22); border-radius: 18px; padding: 18px; background: linear-gradient(135deg, #faf5ff, #fff6fa); }
+.telegram-opt-in { display: flex !important; align-items: center; gap: 10px; }
+.telegram-opt-in input { width: 18px; height: 18px; }
+.group-review-queue { border-top: 5px solid #d79acb !important; background: linear-gradient(180deg, #fff5fc 0%, #fff 55%) !important; }
+.group-review-queue-list { display: grid; gap: 10px; margin-top: 12px; }
+.group-review-queue-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px; border: 1px solid #ead7f0; border-radius: 14px; background: #fff; }
+.group-review-queue-item > div:first-child { display: grid; gap: 5px; min-width: 0; }
+.group-review-queue-item strong { color: #3f2a5f; }
+.group-review-queue-item small { color: #78688a; }
+.group-review-queue-item span { color: #9760ad; font-size: .85rem; font-weight: 700; }
+.group-review-queue-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.group-review-queue-actions button { border: 1px solid #d9c3ec; border-radius: 9px; padding: 8px 11px; background: #f7f0ff; color: #65438d; font-weight: 700; cursor: pointer; }
+.group-review-queue-actions button:last-child { background: linear-gradient(120deg, #8c64ce, #bd7bd7); color: #fff; border-color: transparent; }
+@media (max-width: 700px) { .group-review-queue-item { align-items: stretch; flex-direction: column; } .group-review-queue-actions button { flex: 1; } }

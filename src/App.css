@@ -3898,3 +3898,113 @@ body {
 .gamification-page .quest-icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .gamification-page .quest-icon.quest-is-locked img { filter: grayscale(.7); opacity: .78; }
 .gamification-page .quest-status:not(.is-done) { line-height: 1.4; }
+
+
+/* Aevora clarity pass: consistent panels, stronger borders, calmer hierarchy */
+:root {
+  --ui-ink: #302342;
+  --ui-muted: #766984;
+  --ui-border: #ded4e9;
+  --ui-border-strong: #c9b8dc;
+  --ui-surface: #ffffff;
+  --ui-surface-soft: #faf7fd;
+  --ui-accent: #7651a8;
+}
+
+.app-shell {
+  background: #f5f2f8;
+}
+.main-content {
+  padding: clamp(14px, 1.5vw, 24px);
+  color: var(--ui-ink);
+}
+.welcome-title-wrap { width: auto; }
+.welcome-title { color: #302342; letter-spacing: -.015em; }
+.welcome-tree { display: none !important; }
+.welcome p, .muted, .panel-heading p { color: var(--ui-muted); }
+
+/* Distinguish content areas across pages without changing the existing layout */
+.panel,
+.hero-card,
+.level-card,
+.daily-quote,
+.world-card,
+.task-detail-page,
+.task-extra-card,
+.task-detail-card,
+.subtask-panel,
+.quest-card,
+.achievement-card,
+.task-card,
+.group-room-card,
+.pet-card,
+.calendar-card,
+.settings-card {
+  border: 1px solid var(--ui-border) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 2px 8px rgba(48, 35, 66, .045) !important;
+}
+.panel {
+  background: var(--ui-surface) !important;
+  padding: clamp(14px, 1.25vw, 20px);
+}
+.panel-heading {
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ece5f2;
+  margin-bottom: 16px;
+}
+.panel-heading h2,
+.welcome h1,
+.task-manager .panel-heading h2,
+.aevora-calendar .panel-heading h2 {
+  color: var(--ui-ink);
+  font-weight: 750;
+}
+.panel-heading p { margin-top: 5px; line-height: 1.55; }
+
+/* Clear boundaries for lists, forms, subtasks and status blocks */
+.task-row,
+.task-item,
+.subtask-row,
+.group-review-queue-item,
+.quest-card,
+.achievement-card,
+.room-member,
+.room-task-item,
+.notification-item,
+.activity-item {
+  border-color: var(--ui-border) !important;
+}
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  border-color: var(--ui-border-strong) !important;
+  border-radius: 9px;
+  background-color: #fff !important;
+  color: var(--ui-ink);
+}
+input:focus, select:focus, textarea:focus {
+  border-color: #9475bd !important;
+  box-shadow: 0 0 0 3px rgba(148, 117, 189, .13);
+  outline: none;
+}
+button { transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease; }
+button:focus-visible, a:focus-visible {
+  outline: 3px solid rgba(118, 81, 168, .32);
+  outline-offset: 2px;
+}
+
+/* Reduce playful visual noise while retaining meaningful navigation icons */
+.brand-stars { letter-spacing: 3px; opacity: .75; }
+.quote { border-color: var(--ui-border); background: #fff; }
+.level-pill { border-color: var(--ui-border); background: #fff; }
+.nav-item { border-radius: 10px; }
+.nav-item.active { box-shadow: inset 3px 0 0 #7651a8; }
+.pet-message { border: 1px solid var(--ui-border); }
+.app-footer { color: #8c8099; }
+
+@media (max-width: 760px) {
+  .main-content { padding: 12px; }
+  .panel { padding: 13px; }
+  .panel-heading { align-items: flex-start; }
+}

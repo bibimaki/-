@@ -3871,3 +3871,9 @@ body {
 .group-review-queue-actions button { border: 1px solid #d9c3ec; border-radius: 9px; padding: 8px 11px; background: #f7f0ff; color: #65438d; font-weight: 700; cursor: pointer; }
 .group-review-queue-actions button:last-child { background: linear-gradient(120deg, #8c64ce, #bd7bd7); color: #fff; border-color: transparent; }
 @media (max-width: 700px) { .group-review-queue-item { align-items: stretch; flex-direction: column; } .group-review-queue-actions button { flex: 1; } }
+
+
+/* Per-pet names and rest cooldown */
+.pet-name-field { display: grid; gap: 7px; margin: 12px 0; color: #5d477c; font-weight: 700; }
+.pet-name-field input { width: 100%; box-sizing: border-box; border: 1px solid #d9c8ef; border-radius: 12px; padding: 11px 13px; background: #fffaff; color: #392650; font: inherit; }
+.pet-name-field small { color: #8b79a2; font-size: .82rem; font-weight: 500; }

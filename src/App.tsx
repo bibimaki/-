@@ -935,7 +935,7 @@ function App() {
           {groupRoomMessage && <p className="task-inline-message" role="status">{groupRoomMessage}</p>}
           {groupRooms.length === 0 ? <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีห้องงานกลุ่ม</strong><p>สร้างห้องใหม่หรือกรอกรหัสที่เพื่อนส่งให้เพื่อเข้าร่วม</p></div> : <div className="group-room-grid">{groupRooms.map(room => {
             return <article className={`group-room-card ${selectedRoomId === room.id ? 'room-selected' : ''}`} key={room.dbId}>
-              <div className="group-room-card-top"><span className="group-room-icon">♧</span><span className="group-room-count">{room.members.length} คน · {tasks.filter(task => task.groupRoomId === room.id).length} งาน</span></div>
+              <div className="group-room-card-top"><span className="group-room-icon"><img src="/images/aevora-ui/group-room-icon.png" alt="ไอคอนห้องงานกลุ่ม" /></span><span className="group-room-count">{room.members.length} คน · {tasks.filter(task => task.groupRoomId === room.id).length} งาน</span></div>
               <h3>{room.name}</h3>
               <p className="group-room-code">รหัสห้อง <strong>{room.code}</strong><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(room.code); setGroupRoomMessage('คัดลอกรหัสห้องแล้ว') } catch { setGroupRoomMessage(`รหัสห้อง: ${room.code}`) } }}>คัดลอกรหัส</button></p>
               <div className="group-room-invite-action"><button type="button" onClick={() => { setSelectedInviteRoomId(room.id); setInviteFormat('message'); setGroupRoomMessage(''); setActiveNav('เชิญเพื่อน') }}>✉ จัดการคำเชิญเพื่อน</button></div>

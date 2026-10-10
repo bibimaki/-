@@ -3722,25 +3722,56 @@ body {
 .group-room-delete:disabled{opacity:.5}
 @media(max-width:650px){.group-project-start{align-items:stretch;flex-direction:column}.group-project-item{grid-template-columns:1fr}.group-project-form{padding:15px}}
 
+/* Aevora reliability patch: profile image and stale-task cleanup UI */
+.avatar img,
+.profile-avatar-large img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.profile-image-upload {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #e8def3;
+  border-radius: 14px;
+  background: #fffaff;
+}
+.profile-image-upload > label:first-child {
+  color: #51406b;
+  font-size: 13px;
+  font-weight: 700;
+}
+.profile-image-upload > input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.profile-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.profile-image-upload small {
+  color: #847791;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.profile-image-upload .profile-primary-button,
+.profile-image-upload .backup-import-button {
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+}
+@media (max-width: 560px) {
+  .profile-image-actions { display: grid; grid-template-columns: 1fr; }
+  .profile-image-upload .profile-primary-button,
+  .profile-image-upload .backup-import-button { width: 100%; }
+}
 
-/* Aevora home backgrounds: XP panel and personal-world card */
-.level-card {
-  background:
-    linear-gradient(135deg, rgba(45, 31, 75, .58), rgba(45, 31, 75, .76)),
-    url('/images/backgrounds/bg-exp.png') center / cover no-repeat,
-    linear-gradient(145deg, #584478, #30284f);
-  background-blend-mode: normal;
-}
-.world-card {
-  background:
-    linear-gradient(90deg, rgba(54, 33, 86, .24), rgba(54, 33, 86, .05)),
-    url('/images/backgrounds/bg-castle-balcony.png') center / cover no-repeat,
-    linear-gradient(145deg, #f2e8fa, #c9b4e5);
-  color: #fff;
-  text-shadow: 0 1px 5px rgba(39, 22, 68, .6);
-}
-.world-card .eyebrow,
-.world-card > span { color: #fff1d9; }
-.world-card h2 { color: #fff; }
-.world-card p { color: #fff4ff; }
-.world-card button { color: #584273; text-shadow: none; }
+  

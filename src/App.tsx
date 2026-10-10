@@ -167,7 +167,7 @@ const navItems = [
   { key: 'เชิญเพื่อน', label: 'ห้องทำงานกลุ่ม', icon: '/images/aevora-menu/group-work.png' },
   { key: 'ปฏิทิน', label: 'ปฏิทิน', icon: '/images/aevora-menu/calendar.png' },
   { key: 'พื้นที่ส่วนตัว', label: 'พื้นที่ส่วนตัว', icon: '/images/aevora-menu/private.png' },
-  { key: 'ตัวละคร', label: 'ตัวละคร', icon: '/images/aevora-menu/character.png' },
+  { key: 'ตัวละคร', label: 'สัตว์เลี้ยง', icon: '/images/decorations/pet.png' },
   { key: 'ภารกิจ', label: 'ภารกิจ', icon: '/images/aevora-menu/mission.png' },
   { key: 'ความสำเร็จ', label: 'ความสำเร็จ', icon: '/images/aevora-menu/complete.png' },
   { key: 'ตั้งค่า', label: 'การตั้งค่า', icon: '/images/aevora-menu/setting.png' },
@@ -296,6 +296,11 @@ function App() {
   const [selectedCharacter, setSelectedCharacter] = useState(() => { const saved = localStorage.getItem('aevora_character'); return saved && CHARACTER_OPTIONS.some(item => item.id === saved) ? saved : 'g1' })
   const [selectedGender, setSelectedGender] = useState<'หญิง' | 'ชาย'>(() => localStorage.getItem('aevora_character_gender') === 'ชาย' ? 'ชาย' : 'หญิง')
   const [selectedPet, setSelectedPet] = useState(() => normalizePetValue(localStorage.getItem('aevora_pet') || undefined))
+  const [petLevel, setPetLevel] = useState(() => Math.max(1, Math.min(5, Number(localStorage.getItem('aevora_pet_level') || 1))))
+  const [petExp, setPetExp] = useState(() => Math.max(0, Number(localStorage.getItem('aevora_pet_exp') || 0)))
+  const [expSpent, setExpSpent] = useState(() => Math.max(0, Number(localStorage.getItem('aevora_exp_spent') || 0)))
+  const [petStatus, setPetStatus] = useState('กำลังรอเล่นกับคุณ')
+  const [petNotice, setPetNotice] = useState('น้องพร้อมใช้เวลาดี ๆ กับคุณแล้ว ✨')
   const selectedPetOption = PET_OPTIONS.find(item => selectedPet.startsWith(item.id)) || PET_OPTIONS[0]
   const [selectedRoomTheme, setSelectedRoomTheme] = useState(() => normalizeRoomTheme(localStorage.getItem('aevora_room_theme')))
   const selectedRoomOption = ROOM_OPTIONS.find(item => item.theme === selectedRoomTheme) || ROOM_OPTIONS[0]
@@ -822,6 +827,9 @@ function App() {
         if (typeof profile.bio === 'string') setProfileBio(profile.bio)
         if (typeof cloud.character === 'string') setSelectedCharacter(CHARACTER_OPTIONS.some(item => item.id === cloud.character) ? cloud.character : 'g1')
         if (typeof cloud.pet === 'string') setSelectedPet(normalizePetValue(cloud.pet))
+        setPetLevel(typeof cloud.petLevel === 'number' ? Math.max(1, Math.min(5, cloud.petLevel)) : 1)
+        setPetExp(typeof cloud.petExp === 'number' ? Math.max(0, cloud.petExp) : 0)
+        setExpSpent(typeof cloud.expSpent === 'number' ? Math.max(0, cloud.expSpent) : 0)
         if (typeof cloud.roomTheme === 'string') setSelectedRoomTheme(cloud.roomTheme)
         if (Array.isArray(cloud.rewardUnlocks)) setRewardUnlocks(cloud.rewardUnlocks as RewardUnlock[])
         if (Array.isArray(cloud.equippedDecorations)) setEquippedDecorations(cloud.equippedDecorations.filter((id): id is string => typeof id === 'string'))
@@ -835,6 +843,9 @@ function App() {
         setProfileBio('ค่อย ๆ เติบโตไปทีละก้าว ✨')
         setSelectedCharacter('g1')
         setSelectedPet('pet1 กระต่ายหัวใจ')
+        setPetLevel(1)
+        setPetExp(0)
+        setExpSpent(0)
         setSelectedRoomTheme('🌙 ห้องแสงจันทร์')
         setRewardUnlocks([])
         setEquippedDecorations([])
@@ -851,7 +862,7 @@ function App() {
       version: 1, tasks, groupRooms,
       profile: { name: profileName, emoji: profileEmoji, bio: profileBio },
       character: selectedCharacter, pet: selectedPet, roomTheme: selectedRoomTheme,
-      rewardUnlocks, equippedDecorations,
+      petLevel, petExp, expSpent, rewardUnlocks, equippedDecorations,
     }
     const timer = window.setTimeout(async () => {
       const { error } = await supabase!.from('user_settings')
@@ -862,11 +873,14 @@ function App() {
       } else setCloudStatus('บันทึกออนไลน์แล้ว')
     }, 700)
     return () => window.clearTimeout(timer)
-  }, [cloudReady, authSession?.user?.id, tasks, groupRooms, profileName, profileEmoji, profileBio, selectedCharacter, selectedPet, selectedRoomTheme, rewardUnlocks, equippedDecorations])
+  }, [cloudReady, authSession?.user?.id, tasks, groupRooms, profileName, profileEmoji, profileBio, selectedCharacter, selectedPet, selectedRoomTheme, petLevel, petExp, expSpent, rewardUnlocks, equippedDecorations])
 
   useEffect(() => { localStorage.setItem('aevora_character', selectedCharacter) }, [selectedCharacter])
   useEffect(() => { localStorage.setItem('aevora_character_gender', selectedGender) }, [selectedGender])
   useEffect(() => { localStorage.setItem('aevora_pet', selectedPet) }, [selectedPet])
+  useEffect(() => { localStorage.setItem('aevora_pet_level', String(petLevel)) }, [petLevel])
+  useEffect(() => { localStorage.setItem('aevora_pet_exp', String(petExp)) }, [petExp])
+  useEffect(() => { localStorage.setItem('aevora_exp_spent', String(expSpent)) }, [expSpent])
   useEffect(() => { localStorage.setItem('aevora_room_theme', selectedRoomTheme) }, [selectedRoomTheme])
   useEffect(() => { localStorage.setItem('aevora_profile_name', profileName) }, [profileName])
   useEffect(() => { localStorage.setItem('aevora_profile_emoji', profileEmoji) }, [profileEmoji])
@@ -875,11 +889,6 @@ function App() {
     try { localStorage.setItem('aevora_equipped_decorations', JSON.stringify(equippedDecorations)) }
     catch (error) { console.error('ไม่สามารถบันทึกของตกแต่งที่เลือกได้:', error) }
   }, [equippedDecorations])
-
-  function toggleDecoration(itemId: string) {
-    if (!rewardUnlocks.some(item => item.id === itemId)) return
-    setEquippedDecorations(current => current.includes(itemId) ? current.filter(id => id !== itemId) : [...current, itemId])
-  }
 
   const todayKey = new Date().toLocaleDateString('en-CA')
   const soonKey = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA')
@@ -1055,8 +1064,10 @@ function App() {
 
   const completed = tasks.filter(task => task.done && (task.type !== 'งานกลุ่ม' || task.assignedTo === authSession?.user?.id)).length
   const exp = completed * 100
+  const expBalance = Math.max(0, exp - expSpent)
   const level = Math.min(10, Math.floor(exp / 500) + 1)
   const expInLevel = level === 10 ? 500 : exp % 500
+  const petLevelGoal = [0, 100, 200, 300, 400][petLevel] || 0
   const rankTier = Math.min(5, Math.max(1, Math.ceil(level / 2)))
   const rankImage = `/images/gamification/rank${rankTier}.png`
   const hasActiveTask = tasks.some(task => !task.done && getTaskProgress(task) > 0)
@@ -1238,12 +1249,46 @@ function App() {
     }))
   }
 
+  function doPetActivity(activity: 'feed' | 'play' | 'rest') {
+    if (petLevel >= 5) {
+      setPetNotice('สัตว์เลี้ยงเติบโตเต็มที่แล้ว! 💖')
+      setPetStatus('เติบโตเต็มที่')
+      return
+    }
+    const cost = activity === 'feed' ? 20 : activity === 'play' ? 30 : 0
+    const gain = activity === 'feed' ? 30 : activity === 'play' ? 40 : 50
+    if (expBalance < cost) {
+      setPetNotice(`EXP ไม่เพียงพอ ต้องใช้ ${cost} EXP แต่ตอนนี้มี ${expBalance} EXP`)
+      return
+    }
+    if (cost > 0) setExpSpent(current => current + cost)
+    setPetExp(current => current + gain)
+    if (activity === 'feed') {
+      setPetStatus('อิ่มท้องแล้ว 🍓')
+      setPetNotice(`ให้อาหารสำเร็จ! ใช้ ${cost} EXP และได้รับ ${gain} Pet EXP`)
+    } else if (activity === 'play') {
+      setPetStatus('กำลังเล่นอย่างมีความสุข 🎾')
+      setPetNotice(`เล่นด้วยกันสนุกมาก! ใช้ ${cost} EXP และได้รับ ${gain} Pet EXP`)
+    } else {
+      setPetStatus('กำลังพักผ่อน 🌙')
+      setPetNotice('สัตว์เลี้ยงพักผ่อนเต็มที่! ได้รับ 50 Pet EXP โดยไม่เสีย EXP ของผู้ใช้')
+    }
+  }
+
+  function upgradePet() {
+    if (petLevel >= 5 || petExp < petLevelGoal) return
+    setPetExp(current => Math.max(0, current - petLevelGoal))
+    setPetLevel(current => Math.min(5, current + 1))
+    setPetStatus('เลเวลอัปแล้ว! ✨')
+    setPetNotice(petLevel === 4 ? 'ยินดีด้วย! สัตว์เลี้ยงเติบโตถึง Level 5 แล้ว 💖' : `เลเวลอัปสำเร็จ! น้องเติบโตเป็น Level ${petLevel + 1} แล้ว ✨`)
+  }
+
   function exportBackup() {
     const backup = {
       app: 'Aevora', version: 1, exportedAt: new Date().toISOString(),
       tasks, groupRooms, profile: { name: profileName, emoji: profileEmoji, bio: profileBio },
       character: selectedCharacter, pet: selectedPet, roomTheme: selectedRoomTheme,
-      rewardUnlocks, equippedDecorations,
+      petLevel, petExp, expSpent, rewardUnlocks, equippedDecorations,
     }
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -1272,6 +1317,9 @@ function App() {
       if (typeof profile.bio === 'string') setProfileBio(profile.bio.slice(0, 100))
       if (typeof parsed.character === 'string') setSelectedCharacter(CHARACTER_OPTIONS.some(item => item.id === parsed.character) ? parsed.character : 'g1')
       if (typeof parsed.pet === 'string') setSelectedPet(normalizePetValue(parsed.pet))
+      if (typeof parsed.petLevel === 'number') setPetLevel(Math.max(1, Math.min(5, parsed.petLevel)))
+      if (typeof parsed.petExp === 'number') setPetExp(Math.max(0, parsed.petExp))
+      if (typeof parsed.expSpent === 'number') setExpSpent(Math.max(0, parsed.expSpent))
       if (typeof parsed.roomTheme === 'string') setSelectedRoomTheme(parsed.roomTheme)
       if (Array.isArray(parsed.rewardUnlocks)) setRewardUnlocks(parsed.rewardUnlocks as RewardUnlock[])
       if (Array.isArray(parsed.equippedDecorations)) setEquippedDecorations(parsed.equippedDecorations.filter((id): id is string => typeof id === 'string'))
@@ -1314,7 +1362,7 @@ function App() {
 
           <div className="welcome"><div className="avatar">{profileEmoji}</div><div className="welcome-copy"><div className="welcome-title-wrap"><span className="welcome-tree" aria-hidden="true">🪴</span><h1 className="welcome-title">สวัสดี {profileName || 'เพื่อน'} ✦</h1></div><p>{profileBio || 'วันนี้เรามาค่อย ๆ ทำให้สำเร็จกัน'}</p></div></div>
 
-          <div className="topbar-right"><div className="quote">“ทุกงานเล็ก ๆ คือก้าวไปใกล้ความสำเร็จ”</div><button className="icon-button" aria-label="ค้นหา" onClick={() => { navigateTo('งานของฉัน'); document.getElementById('task-search')?.focus() }}>⌕</button><div className="notification-wrap"><button type="button" className="icon-button notification-button" aria-label="การแจ้งเตือน" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}>♧{dueNotifications.length > 0 && <span className="notification-badge">{dueNotifications.length > 9 ? '9+' : dueNotifications.length}</span>}</button>{notificationsOpen && <div className="notification-popover"><div className="notification-popover-heading"><div><strong>การแจ้งเตือน</strong><small>งานที่ใกล้ถึงกำหนดใน 3 วัน</small></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="ปิดการแจ้งเตือน">×</button></div>{dueNotifications.length === 0 ? <p className="notification-empty">ยังไม่มีงานใกล้ถึงกำหนด ✨</p> : <><p className="notification-summary">{overdueCount > 0 ? `มีงานเลยกำหนด ${overdueCount} งาน` : `มีงานใกล้ถึงกำหนด ${dueNotifications.length} งาน`}</p><div className="notification-list">{dueNotifications.map(task => <button type="button" className="notification-item" key={task.id} onClick={() => { navigateTask(task.id, false); setEditingId(null); navigateTo('งานของฉัน'); setNotificationsOpen(false) }}><span className={`notification-dot ${(task.dueDate || '') < todayKey ? 'overdue' : ''}`}/><span className="notification-item-text"><strong>{task.title}</strong><small>{(task.dueDate || '') < todayKey ? 'เลยกำหนดส่ง' : (task.dueDate || '') === todayKey ? 'ครบกำหนดวันนี้' : `กำหนดส่ง ${new Date(`${task.dueDate}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}`}</small></span><span className="notification-arrow">›</span></button>)}</div></>}</div>}</div><div className={`level-pill ${activeNav === 'หน้าหลัก' ? 'level-pill-home' : 'level-pill-with-rank'}`}>{activeNav !== 'หน้าหลัก' && <img className="profile-rank-icon" src={rankImage} alt={`Rank ${rankTier}`} title={`Rank ${rankTier}`} />}<span className="level-avatar">🌙</span><div><strong>Lv. {level}</strong><small>{exp} EXP</small></div></div><span className="aevora-cloud-status" title="สถานะการซิงก์">☁ {cloudStatus}</span><button type="button" className="aevora-logout-button" onClick={async () => { if (!supabase) return; const { error } = await supabase.auth.signOut(); if (error) window.alert(`ออกจากระบบไม่สำเร็จ: ${error.message}`) }}>ออกจากระบบ</button></div>
+          <div className="topbar-right"><div className="quote">“ทุกงานเล็ก ๆ คือก้าวไปใกล้ความสำเร็จ”</div><button className="icon-button" aria-label="ค้นหา" onClick={() => { navigateTo('งานของฉัน'); document.getElementById('task-search')?.focus() }}>⌕</button><div className="notification-wrap"><button type="button" className="icon-button notification-button" aria-label="การแจ้งเตือน" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}>♧{dueNotifications.length > 0 && <span className="notification-badge">{dueNotifications.length > 9 ? '9+' : dueNotifications.length}</span>}</button>{notificationsOpen && <div className="notification-popover"><div className="notification-popover-heading"><div><strong>การแจ้งเตือน</strong><small>งานที่ใกล้ถึงกำหนดใน 3 วัน</small></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="ปิดการแจ้งเตือน">×</button></div>{dueNotifications.length === 0 ? <p className="notification-empty">ยังไม่มีงานใกล้ถึงกำหนด ✨</p> : <><p className="notification-summary">{overdueCount > 0 ? `มีงานเลยกำหนด ${overdueCount} งาน` : `มีงานใกล้ถึงกำหนด ${dueNotifications.length} งาน`}</p><div className="notification-list">{dueNotifications.map(task => <button type="button" className="notification-item" key={task.id} onClick={() => { navigateTask(task.id, false); setEditingId(null); navigateTo('งานของฉัน'); setNotificationsOpen(false) }}><span className={`notification-dot ${(task.dueDate || '') < todayKey ? 'overdue' : ''}`}/><span className="notification-item-text"><strong>{task.title}</strong><small>{(task.dueDate || '') < todayKey ? 'เลยกำหนดส่ง' : (task.dueDate || '') === todayKey ? 'ครบกำหนดวันนี้' : `กำหนดส่ง ${new Date(`${task.dueDate}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}`}</small></span><span className="notification-arrow">›</span></button>)}</div></>}</div>}</div><div className={`level-pill ${activeNav === 'หน้าหลัก' ? 'level-pill-home' : 'level-pill-with-rank'}`}>{activeNav !== 'หน้าหลัก' && <img className="profile-rank-icon" src={rankImage} alt={`Rank ${rankTier}`} title={`Rank ${rankTier}`} />}<span className="level-avatar">🌙</span><div><strong>Lv. {level}</strong><small>{expBalance} EXP</small></div></div><span className="aevora-cloud-status" title="สถานะการซิงก์">☁ {cloudStatus}</span><button type="button" className="aevora-logout-button" onClick={async () => { if (!supabase) return; const { error } = await supabase.auth.signOut(); if (error) window.alert(`ออกจากระบบไม่สำเร็จ: ${error.message}`) }}>ออกจากระบบ</button></div>
 
         </header>
 
@@ -1351,9 +1399,35 @@ function App() {
             <div><strong>ทำต่อเนื่อง {streak} วัน</strong><p>นับจากวันที่มีงานทำสำเร็จอย่างน้อยหนึ่งงาน โดยอิงวันที่บันทึกในระบบ</p></div>
           </div>
         </section>}
-        {activeNav === 'พื้นที่ส่วนตัว' && <section className="panel customization-page"><div className="panel-heading"><div><h2>พื้นที่ส่วนตัวของฉัน</h2><p className="muted">จัดห้องเล็ก ๆ ให้เป็นพื้นที่ที่ชอบ การเลือกจะถูกบันทึกในเบราว์เซอร์นี้</p></div><span className="gamification-level">Lv. {level}</span></div><div className="customization-preview" style={{ backgroundImage: `linear-gradient(180deg, rgba(38, 25, 61, .28), rgba(38, 25, 61, .72)), url(${selectedRoomOption.file})` }}><div className="preview-stars">✦　☾　✧</div><div className="preview-room-icon">{selectedRoomOption.icon}</div><div className="preview-character"><img src={(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).file} alt="ตัวละครที่เลือก" /></div><div className="preview-pet"><img src={selectedPetOption.file} alt={selectedPetOption.name} /></div><div className="preview-decorations" aria-label="ของตกแต่งที่ติดตั้ง">{rewardItems.filter(item => equippedDecorations.includes(item.id) && rewardUnlocks.some(unlock => unlock.id === item.id)).map(item => <span key={item.id} title={item.name}>{item.icon}</span>)}</div><h3>{selectedRoomTheme}</h3><p>{characterLabel(selectedCharacter)} · เพื่อนคู่ใจ {selectedPetOption.name}</p><small className="preview-decoration-caption">ของตกแต่งที่ติดตั้ง {equippedDecorations.filter(id => rewardUnlocks.some(unlock => unlock.id === id)).length} ชิ้น</small></div><div className="customization-section"><h3>เลือกบรรยากาศห้อง</h3><p className="muted">เลือกฉากที่ชอบเพื่อเปลี่ยนพื้นหลังทั้งตัวอย่างห้องและแบนเนอร์หน้าแรกได้ทันที ✨</p><div className="room-theme-grid">{ROOM_OPTIONS.map(item => <button type="button" key={item.theme} className={`room-theme-card ${selectedRoomTheme === item.theme ? 'selected' : ''}`} onClick={() => setSelectedRoomTheme(item.theme)} aria-pressed={selectedRoomTheme === item.theme}><span className="room-theme-image"><img src={item.file} alt={item.name} loading="lazy" />{selectedRoomTheme === item.theme && <span className="room-theme-check">✓ เลือกแล้ว</span>}</span><strong>{item.icon} {item.name}</strong><small>{item.description}</small></button>)}</div></div><div className="customization-section"><h3>ตัวละครของฉัน</h3><div className="character-gender-tabs"><button type="button" className={selectedGender === 'หญิง' ? 'active' : ''} onClick={() => setSelectedGender('หญิง')}>🌸 หญิง (g)</button><button type="button" className={selectedGender === 'ชาย' ? 'active' : ''} onClick={() => setSelectedGender('ชาย')}>🌙 ชาย (b)</button></div><div className="character-choice-grid">{CHARACTER_OPTIONS.filter(item => item.gender === selectedGender).map(item => <button type="button" key={item.id} className={`character-choice-card ${selectedCharacter === item.id ? 'selected' : ''}`} onClick={() => { setSelectedCharacter(item.id); setSelectedGender(item.gender) }} aria-pressed={selectedCharacter === item.id}><span className="character-choice-image"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small>{item.id.toUpperCase()}</small>{selectedCharacter === item.id && <span className="choice-check">✓ เลือกแล้ว</span>}</button>)}</div></div><div className="customization-section"><h3>สัตว์เลี้ยงคู่ใจ</h3><div className="pet-choice-grid">{PET_OPTIONS.map(item => { const value = `${item.id} ${item.name}`; return <button type="button" key={item.id} className={`pet-choice-card ${selectedPet === value ? 'selected' : ''}`} onClick={() => setSelectedPet(value)} aria-pressed={selectedPet === value}><span className="pet-choice-icon"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small className="pet-choice-id">{item.id.toUpperCase()}</small>{selectedPet === value && <small>✓ เลือกแล้ว</small>}</button>})}</div></div></section>}
-        {activeNav === 'ตัวละคร' && <section className="panel customization-page character-select-page"><div className="panel-heading"><div className="character-page-title"><img src="/images/decorations/character-decoration.png" alt="" /><div><h2>✨ ตัวละครและสัตว์เลี้ยง</h2><p className="muted">เลือกตัวตนและคู่หูที่ชอบได้ตามใจ ไม่ต้องปลดล็อกด้วยเลเวล</p></div></div><span className="gamification-level">Lv. {level} · {exp} EXP</span></div><div className="character-showcase character-showcase-art"><div className="showcase-character-art"><img src={(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).file} alt="ตัวละครที่เลือก" /></div><div className="showcase-copy"><span className="soft-kicker">YOUR LITTLE UNIVERSE</span><h3>{(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).name}</h3><p className="muted">รหัสตัวละคร {(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).id.toUpperCase()} · {selectedGender}</p><div className="selected-pet-pill"><img src={selectedPetOption.file} alt="" /><span>เพื่อนคู่ใจ: {selectedPetOption.name}</span></div><p className="muted">การเลือกจะบันทึกไว้ในเบราว์เซอร์นี้โดยอัตโนมัติ</p></div></div><div className="customization-section"><h3>🌷 เลือกตัวละคร</h3><div className="character-gender-tabs"><button type="button" className={selectedGender === 'หญิง' ? 'active' : ''} onClick={() => setSelectedGender('หญิง')}>🌸 ตัวละครหญิง (g1–g7)</button><button type="button" className={selectedGender === 'ชาย' ? 'active' : ''} onClick={() => setSelectedGender('ชาย')}>🌙 ตัวละครชาย (b1–b5)</button></div><div className="character-choice-grid">{CHARACTER_OPTIONS.filter(item => item.gender === selectedGender).map(item => <button type="button" key={item.id} className={`character-choice-card ${selectedCharacter === item.id ? 'selected' : ''}`} onClick={() => { setSelectedCharacter(item.id); setSelectedGender(item.gender) }} aria-pressed={selectedCharacter === item.id}><span className="character-choice-image"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small>{item.id.toUpperCase()}</small>{selectedCharacter === item.id && <span className="choice-check">✓ เลือกแล้ว</span>}</button>)}</div></div><div className="customization-section"><h3>🐾 เลือกสัตว์เลี้ยง</h3><div className="pet-choice-grid">{PET_OPTIONS.map(item => { const value = `${item.id} ${item.name}`; return <button type="button" key={item.id} className={`pet-choice-card ${selectedPet === value ? 'selected' : ''}`} onClick={() => setSelectedPet(value)} aria-pressed={selectedPet === value}><span className="pet-choice-icon"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small className="pet-choice-id">{item.id.toUpperCase()}</small>{selectedPet === value && <small>✓ เลือกแล้ว</small>}</button>})}</div></div></section>}
-        {activeNav === 'คลังไอเทม' && <section className="panel customization-page"><div className="panel-heading"><div><h2>คลังไอเทม</h2><p className="muted">ทำงานให้สำเร็จเพื่อรับไอเทมสะสมและบันทึกประวัติการปลดล็อก</p></div><span className="gamification-level">ได้รับแล้ว {rewardUnlocks.length} / {rewardItems.length}</span></div><div className="reward-progress-summary"><span>🎁</span><div><strong>รางวัลจากงานที่สำเร็จ</strong><p>ตอนนี้ทำสำเร็จแล้ว {completed} งาน ไอเทมใหม่จะได้รับอัตโนมัติเมื่อถึงเป้าหมาย</p></div></div><div className="inventory-grid">{rewardItems.map(item => { const unlocked = rewardUnlocks.some(reward => reward.id === item.id); const unlock = rewardUnlocks.find(reward => reward.id === item.id); return <article className={`inventory-item ${unlocked ? 'available' : 'locked'}`} key={item.id}><span>{item.icon}</span><strong>{item.name}</strong><small>{unlocked ? 'ได้รับแล้ว ✓' : `ทำงานสำเร็จ ${item.goal} งาน`}</small><p>{item.description}</p>{unlock && <time dateTime={unlock.unlockedAt}>ปลดล็อก {new Date(unlock.unlockedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</time>}<button type="button" className="inventory-equip-button" disabled={!unlocked} onClick={() => { toggleDecoration(item.id); navigateTo('พื้นที่ส่วนตัว') }}>{equippedDecorations.includes(item.id) ? 'ติดตั้งแล้ว · จัดการ' : unlocked ? 'นำไปตกแต่ง' : 'ยังล็อกอยู่'}</button></article>})}</div><div className="reward-history"><div className="task-extra-heading"><h3>ประวัติการปลดล็อก</h3><span>{rewardUnlocks.length} รายการ</span></div>{rewardUnlocks.length ? <ul>{rewardUnlocks.slice().sort((a,b) => b.unlockedAt.localeCompare(a.unlockedAt)).map(reward => { const item = rewardItems.find(entry => entry.id === reward.id); if (!item) return null; return <li key={reward.id}><span>{item.icon}</span><div><strong>{item.name}</strong><small>{new Date(reward.unlockedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</small></div><b>ได้รับแล้ว</b></li>})}</ul> : <p className="task-extra-empty">ทำงานสำเร็จตามเป้าหมาย แล้วรางวัลแรกจะปรากฏที่นี่ ✨</p>}</div></section>}
+        {activeNav === 'พื้นที่ส่วนตัว' && <section className="panel customization-page"><div className="panel-heading"><div><h2>พื้นที่ส่วนตัวของฉัน</h2><p className="muted">จัดห้องเล็ก ๆ ให้เป็นพื้นที่ที่ชอบ การเลือกจะถูกบันทึกในเบราว์เซอร์นี้</p></div><span className="gamification-level">Lv. {level}</span></div><div className="customization-preview" style={{ backgroundImage: `linear-gradient(180deg, rgba(38, 25, 61, .28), rgba(38, 25, 61, .72)), url(${selectedRoomOption.file})` }}><div className="preview-stars">✦　☾　✧</div><div className="preview-room-icon">{selectedRoomOption.icon}</div><div className="preview-character"><img src={(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).file} alt="ตัวละครที่เลือก" /></div><div className="preview-pet"><img src={selectedPetOption.file} alt={selectedPetOption.name} /></div><h3>{selectedRoomTheme}</h3><p>{characterLabel(selectedCharacter)} · เพื่อนคู่ใจ {selectedPetOption.name}</p></div><div className="customization-section"><h3>เลือกบรรยากาศห้อง</h3><p className="muted">เลือกฉากที่ชอบเพื่อเปลี่ยนพื้นหลังทั้งตัวอย่างห้องและแบนเนอร์หน้าแรกได้ทันที ✨</p><div className="room-theme-grid">{ROOM_OPTIONS.map(item => <button type="button" key={item.theme} className={`room-theme-card ${selectedRoomTheme === item.theme ? 'selected' : ''}`} onClick={() => setSelectedRoomTheme(item.theme)} aria-pressed={selectedRoomTheme === item.theme}><span className="room-theme-image"><img src={item.file} alt={item.name} loading="lazy" />{selectedRoomTheme === item.theme && <span className="room-theme-check">✓ เลือกแล้ว</span>}</span><strong>{item.icon} {item.name}</strong><small>{item.description}</small></button>)}</div></div><div className="customization-section"><h3>ตัวละครของฉัน</h3><div className="character-gender-tabs"><button type="button" className={selectedGender === 'หญิง' ? 'active' : ''} onClick={() => setSelectedGender('หญิง')}>🌸 หญิง (g)</button><button type="button" className={selectedGender === 'ชาย' ? 'active' : ''} onClick={() => setSelectedGender('ชาย')}>🌙 ชาย (b)</button></div><div className="character-choice-grid">{CHARACTER_OPTIONS.filter(item => item.gender === selectedGender).map(item => <button type="button" key={item.id} className={`character-choice-card ${selectedCharacter === item.id ? 'selected' : ''}`} onClick={() => { setSelectedCharacter(item.id); setSelectedGender(item.gender) }} aria-pressed={selectedCharacter === item.id}><span className="character-choice-image"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small>{item.id.toUpperCase()}</small>{selectedCharacter === item.id && <span className="choice-check">✓ เลือกแล้ว</span>}</button>)}</div></div><div className="customization-section"><h3>สัตว์เลี้ยงคู่ใจ</h3><div className="pet-choice-grid">{PET_OPTIONS.map(item => { const value = `${item.id} ${item.name}`; return <button type="button" key={item.id} className={`pet-choice-card ${selectedPet === value ? 'selected' : ''}`} onClick={() => setSelectedPet(value)} aria-pressed={selectedPet === value}><span className="pet-choice-icon"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small className="pet-choice-id">{item.id.toUpperCase()}</small>{selectedPet === value && <small>✓ เลือกแล้ว</small>}</button>})}</div></div></section>}
+        {activeNav === 'ตัวละคร' && <section className="panel customization-page pet-room-page">
+          <div className="panel-heading"><div className="character-page-title"><img src="/images/decorations/pet.png" alt="" /><div><h2>🐾 สัตว์เลี้ยงของฉัน</h2><p className="muted">ดูแลคู่หูตัวน้อย แล้วเติบโตไปด้วยกัน</p></div></div><span className="gamification-level">EXP ของคุณ {expBalance} EXP</span></div>
+          <div className="pet-room-showcase">
+            <div className={`pet-room-art pet-action-${petStatus.includes('เล่น') ? 'play' : petStatus.includes('พัก') ? 'rest' : petStatus.includes('อิ่ม') ? 'feed' : 'idle'}`}>
+              <span className="pet-room-sparkle sparkle-one">✦</span><span className="pet-room-sparkle sparkle-two">✧</span>
+              <img src={selectedPetOption.file} alt={selectedPetOption.name} />
+              <span className="pet-room-status">{petStatus}</span>
+            </div>
+            <div className="pet-room-info"><span className="soft-kicker">YOUR LITTLE COMPANION</span><h3>{selectedPetOption.name}</h3><p>คู่หูตัวน้อยที่เติบโตไปพร้อมกับความพยายามของคุณ</p>
+              <div className="pet-level-row"><strong>Level {petLevel}</strong><span>{petLevel >= 5 ? 'MAX LEVEL' : `อีก ${Math.max(0, petLevelGoal - petExp)} Pet EXP เพื่ออัปเลเวล`}</span></div>
+              <div className="pet-exp-track"><span style={{ width: `${petLevel >= 5 ? 100 : Math.min(100, petExp / Math.max(1, petLevelGoal) * 100)}%` }} /></div>
+              <small className="pet-exp-numbers">{petLevel >= 5 ? 'เติบโตเต็มที่แล้ว' : `${petExp} / ${petLevelGoal} Pet EXP`}</small>
+              {petLevel < 5 && petExp >= petLevelGoal && <button type="button" className="pet-upgrade-button" onClick={upgradePet}>✨ อัปเลเวลเป็น Level {petLevel + 1}</button>}
+              {petLevel >= 5 && <div className="pet-max-level-note">🌟 สัตว์เลี้ยงเติบโตเต็มที่แล้ว!</div>}
+            </div>
+          </div>
+          <div className="pet-wallet-card"><span className="pet-wallet-icon">🌙</span><div><small>EXP ที่ใช้ทำกิจกรรมได้</small><strong>{expBalance} EXP</strong></div><p>EXP ที่ได้จากการทำงานสำเร็จจะใช้ร่วมกับระบบเดิมของ Aevora</p></div>
+          <div className="pet-activity-section"><div><h3>ดูแลสัตว์เลี้ยง</h3><p className="muted">เลือกกิจกรรมที่น้องต้องการ แต่ละกิจกรรมช่วยเพิ่ม Pet EXP</p></div>
+            <div className="pet-activity-grid">
+              <article className="pet-activity-card"><span className="pet-activity-icon">🍓</span><h4>ให้อาหาร</h4><p>เติมพลังให้น้องด้วยขนมแสนอร่อย</p><div className="pet-activity-cost"><span>ใช้ 20 EXP</span><strong>+30 Pet EXP</strong></div><button type="button" onClick={() => doPetActivity('feed')} disabled={petLevel >= 5 || expBalance < 20}>ให้อาหารน้อง</button>{petLevel < 5 && expBalance < 20 && <small className="pet-insufficient-note">EXP ไม่เพียงพอ (ต้องมี 20 EXP)</small>}</article>
+              <article className="pet-activity-card"><span className="pet-activity-icon">🎾</span><h4>เล่นกับสัตว์เลี้ยง</h4><p>ใช้เวลาสนุกด้วยกัน เพิ่มความสุขให้น้อง</p><div className="pet-activity-cost"><span>ใช้ 30 EXP</span><strong>+40 Pet EXP</strong></div><button type="button" onClick={() => doPetActivity('play')} disabled={petLevel >= 5 || expBalance < 30}>ชวนเล่น</button>{petLevel < 5 && expBalance < 30 && <small className="pet-insufficient-note">EXP ไม่เพียงพอ (ต้องมี 30 EXP)</small>}</article>
+              <article className="pet-activity-card"><span className="pet-activity-icon">🌙</span><h4>พักผ่อน</h4><p>ให้น้องนอนหลับและฟื้นฟูพลังอย่างเต็มที่</p><div className="pet-activity-cost"><span>ฟรี</span><strong>+50 Pet EXP</strong></div><button type="button" onClick={() => doPetActivity('rest')} disabled={petLevel >= 5}>ให้พักผ่อน</button></article>
+            </div>
+            <p className="pet-action-notice" role="status">{petNotice}</p>
+          </div>
+          <div className="customization-section"><h3>🐾 เปลี่ยนสัตว์เลี้ยง</h3><div className="pet-choice-grid">{PET_OPTIONS.map(item => { const value = `${item.id} ${item.name}`; return <button type="button" key={item.id} className={`pet-choice-card ${selectedPet === value ? 'selected' : ''}`} onClick={() => setSelectedPet(value)} aria-pressed={selectedPet === value}><span className="pet-choice-icon"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small className="pet-choice-id">{item.id.toUpperCase()}</small>{selectedPet === value && <small>✓ เลือกแล้ว</small>}</button>})}</div></div>
+        </section>}
+        {activeNav === 'คลังไอเทม' && <section className="panel customization-page"><div className="panel-heading"><div><h2>คลังไอเทม</h2><p className="muted">ทำงานให้สำเร็จเพื่อรับไอเทมสะสมและบันทึกประวัติการปลดล็อก</p></div><span className="gamification-level">ได้รับแล้ว {rewardUnlocks.length} / {rewardItems.length}</span></div><div className="reward-progress-summary"><span>🎁</span><div><strong>รางวัลจากงานที่สำเร็จ</strong><p>ตอนนี้ทำสำเร็จแล้ว {completed} งาน ไอเทมใหม่จะได้รับอัตโนมัติเมื่อถึงเป้าหมาย</p></div></div><div className="inventory-grid">{rewardItems.map(item => { const unlocked = rewardUnlocks.some(reward => reward.id === item.id); const unlock = rewardUnlocks.find(reward => reward.id === item.id); return <article className={`inventory-item ${unlocked ? 'available' : 'locked'}`} key={item.id}><span>{item.icon}</span><strong>{item.name}</strong><small>{unlocked ? 'ได้รับแล้ว ✓' : `ทำงานสำเร็จ ${item.goal} งาน`}</small><p>{item.description}</p>{unlock && <time dateTime={unlock.unlockedAt}>ปลดล็อก {new Date(unlock.unlockedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</time>}</article>})}</div><div className="reward-history"><div className="task-extra-heading"><h3>ประวัติการปลดล็อก</h3><span>{rewardUnlocks.length} รายการ</span></div>{rewardUnlocks.length ? <ul>{rewardUnlocks.slice().sort((a,b) => b.unlockedAt.localeCompare(a.unlockedAt)).map(reward => { const item = rewardItems.find(entry => entry.id === reward.id); if (!item) return null; return <li key={reward.id}><span>{item.icon}</span><div><strong>{item.name}</strong><small>{new Date(reward.unlockedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</small></div><b>ได้รับแล้ว</b></li>})}</ul> : <p className="task-extra-empty">ทำงานสำเร็จตามเป้าหมาย แล้วรางวัลแรกจะปรากฏที่นี่ ✨</p>}</div></section>}
         {activeNav === 'ตั้งค่า' && <section className="panel profile-settings-page">
           <div className="panel-heading"><div><h2>โปรไฟล์และข้อมูลของฉัน</h2><p className="muted">ปรับข้อมูลที่แสดงบนหน้า Aevora และสำรองข้อมูลไว้ได้</p></div><span className="gamification-level">Lv. {level}</span></div>
           <div className="profile-card"><div className="profile-avatar-large">{profileEmoji}</div><div><h3>{profileName || 'เพื่อนของ Aevora'}</h3><p>{profileBio}</p><small>{completed} งานสำเร็จ · {exp} EXP · Streak {streak} วัน</small></div></div>

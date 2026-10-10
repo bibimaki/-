@@ -3721,3 +3721,74 @@ body {
 .group-project-form-actions{justify-content:flex-end;padding-top:5px}
 .group-room-delete:disabled{opacity:.5}
 @media(max-width:650px){.group-project-start{align-items:stretch;flex-direction:column}.group-project-item{grid-template-columns:1fr}.group-project-form{padding:15px}}
+
+/* ===== AEVORA COMPACT TASK MANAGER ===== */
+
+/* ลดความสูงและช่องว่างของแต่ละรายการงาน */
+.task-manager .task-row,
+.task-row {
+  min-height: 56px !important;
+  gap: 7px !important;
+  padding: 8px 10px !important;
+}
+
+/* ลดขนาดชื่อและรายละเอียดงาน */
+.task-manager .task-info strong,
+.task-info strong {
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+}
+
+.task-manager .task-info small,
+.task-info small {
+  font-size: 10px !important;
+  margin-top: 2px !important;
+}
+
+/* ลดขนาดปุ่มแก้ไขและลบ */
+.task-row .task-actions button,
+.task-manager .task-actions button {
+  padding: 5px 8px !important;
+  font-size: 10px !important;
+}
+
+/* ลดขนาดป้ายประเภทงาน */
+.task-row .task-type {
+  padding: 4px 6px !important;
+  font-size: 9px !important;
+}
+
+/* ลดขนาดแถบความคืบหน้า */
+.task-row .task-progress .mini-track {
+  width: 35px !important;
+  min-width: 25px !important;
+}
+
+.task-row .task-progress small {
+  font-size: 9px !important;
+  min-width: 25px !important;
+}
+
+/* ลดขนาดช่องค้นหา */
+.task-search input {
+  padding: 8px 10px !important;
+  font-size: 12px !important;
+}
+
+/* ลดขนาดปุ่มตัวกรอง */
+.filter-buttons button {
+  padding: 6px 10px !important;
+  font-size: 11px !important;
+}
+
+/* หน้าจอแคบ */
+@media (max-width: 1100px) {
+  .task-row {
+    min-height: 0 !important;
+    padding: 8px !important;
+  }
+
+  .task-row .task-actions button {
+    padding: 5px 8px !important;
+  }
+}

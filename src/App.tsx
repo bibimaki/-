@@ -1453,6 +1453,38 @@ function App() {
           const completedRoomTasks = roomTasks.filter(task => task.done).length
           const overallProgress = roomTasks.length ? Math.round(roomTasks.reduce((sum, task) => sum + getTaskProgress(task), 0) / roomTasks.length) : 0
           return <section className="panel group-workspace-hub">
+            <style>{`
+              .group-workspace-hub { color: #30234b; }
+              .group-overview-hero { background: linear-gradient(120deg, #f3eaff 0%, #f8efff 52%, #fff0f7 100%) !important; border: 1px solid #ddc8f6 !important; border-radius: 22px !important; padding: 26px !important; }
+              .group-overview-hero h2 { color: #43266f !important; font-size: clamp(1.8rem, 2.5vw, 2.5rem) !important; font-weight: 800 !important; letter-spacing: -.02em; }
+              .group-overview-hero p, .group-overview-code { color: #624b88 !important; }
+              .group-overview-progress { background: #fff !important; border: 1px solid #d8c4f3 !important; border-radius: 18px !important; padding: 18px !important; min-width: 230px; }
+              .group-overview-progress strong { color: #7446c4 !important; font-size: 2.2rem !important; line-height: 1.1; }
+              .group-overview-section { border: 1px solid #e2d8f2 !important; border-radius: 16px !important; padding: 18px !important; margin-top: 18px !important; background: #fff !important; }
+              .group-overview-section:nth-of-type(1) { border-top: 5px solid #8d6bd1 !important; background: linear-gradient(180deg,#faf7ff 0%,#fff 40%) !important; }
+              .group-overview-section:nth-of-type(2) { border-top: 5px solid #3caa8a !important; background: linear-gradient(180deg,#f2fbf7 0%,#fff 40%) !important; }
+              .group-overview-section-heading h3 { color: #3d2a5e !important; font-size: 1.15rem !important; font-weight: 800 !important; }
+              .group-overview-section-heading p { color: #716286 !important; font-size: .92rem !important; }
+              .group-overview-member { background: #fff !important; border: 1px solid #dcefe7 !important; border-radius: 13px !important; padding: 14px !important; margin-top: 10px !important; }
+              .group-overview-member strong, .group-overview-task-main strong { color: #30234b !important; font-size: 1rem !important; font-weight: 750 !important; }
+              .group-overview-member small, .group-overview-task-main small { color: #6f6480 !important; font-size: .84rem !important; }
+              .group-overview-task-list { gap: 12px !important; }
+              .group-overview-task { background: #fff !important; border: 1px solid #e4d7f7 !important; border-left: 5px solid #9a76da !important; border-radius: 14px !important; padding: 16px !important; gap: 14px !important; margin-top: 10px !important; box-shadow: 0 3px 12px rgba(76,45,117,.05); }
+              .group-overview-task:nth-child(4n + 2) { border-color: #cceadd !important; border-left-color: #42a987 !important; background: #fbfffd !important; }
+              .group-overview-task:nth-child(4n + 3) { border-color: #f3dfc3 !important; border-left-color: #d99543 !important; background: #fffdfa !important; }
+              .group-overview-task:nth-child(4n + 4) { border-color: #d4e5fb !important; border-left-color: #5a91d1 !important; background: #fbfdff !important; }
+              .group-overview-task-status { width: 36px !important; height: 36px !important; font-size: 1.1rem !important; flex-shrink: 0; }
+              .group-overview-task-meta b { color: #6841b2 !important; font-size: 1.05rem !important; }
+              .group-overview-task-meta span { color: #655777 !important; font-weight: 650 !important; }
+              .group-overview-track { width: 100% !important; height: 13px !important; min-height: 13px !important; background: #e9e0f4 !important; border-radius: 999px !important; overflow: hidden !important; box-shadow: inset 0 1px 2px rgba(55,35,80,.08); margin-top: 9px !important; }
+              .group-overview-track > div { height: 100% !important; min-height: 13px !important; background: linear-gradient(90deg,#8d63d4 0%,#bd81eb 55%,#ed91c7 100%) !important; border-radius: inherit !important; transition: width .35s ease !important; }
+              .group-overview-member .group-overview-track > div { background: linear-gradient(90deg,#36a985,#8bd7b5) !important; }
+              .group-overview-task:nth-child(4n + 2) .group-overview-track > div { background: linear-gradient(90deg,#239d78,#7bd4ae) !important; }
+              .group-overview-task:nth-child(4n + 3) .group-overview-track > div { background: linear-gradient(90deg,#d58a2d,#f4c16c) !important; }
+              .group-overview-task:nth-child(4n + 4) .group-overview-track > div { background: linear-gradient(90deg,#4385c8,#91c7f5) !important; }
+              .group-overview-task-meta button, .group-overview-section-heading button { font-weight: 700 !important; }
+              @media (max-width: 700px) { .group-overview-hero { padding: 18px !important; } .group-overview-task { grid-template-columns: 32px minmax(0,1fr) !important; } .group-overview-task-meta { grid-column: 2; flex-wrap: wrap; } .group-overview-track { height: 11px !important; min-height: 11px !important; } .group-overview-track > div { min-height: 11px !important; } }
+            `}</style>
             {activeRoom ? <>
               <button type="button" className="task-back-button" onClick={() => setSelectedWorkspaceRoomId(null)}>← กลับไปห้องทำงานกลุ่ม</button>
               <header className="group-overview-hero">

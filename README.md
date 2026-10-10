@@ -77,3 +77,15 @@ export default defineConfig([
 
 ## เลือกบรรยากาศห้อง
 หน้า “พื้นที่ส่วนตัว” มีฉากให้เลือก 4 แบบ โดยไฟล์ภาพอยู่ที่ `public/images/room-backgrounds/` การเลือกห้องจะบันทึกใน `localStorage` และภาพเดียวกันจะแสดงในแบนเนอร์หน้าแรก
+
+## Group task review and Telegram beta notifications
+
+- Group-task progress is capped at 99% until the assigned member presses **ส่งงานให้ตรวจ** and the room host approves it in **ระบบตรวจงานของโฮสต์**. Only host approval marks the task 100% complete.
+- Telegram notifications are opt-in. Users enable them in **การตั้งค่า → Telegram แจ้งเตือน (ทดลองใช้)** and enter their Telegram Chat ID. Only accounts with an enabled `telegram_subscriptions` row receive messages.
+- Run `docs/telegram-beta-setup.sql` in the Supabase SQL editor.
+- Configure these server-side environment variables in Vercel (never expose the bot token or service-role key in `VITE_*` variables):
+  - `SUPABASE_URL` (or existing `VITE_SUPABASE_URL`)
+  - `SUPABASE_SERVICE_ROLE_KEY`
+  - `TELEGRAM_BOT_TOKEN`
+- The user must start a chat with the Telegram bot before the test message can be delivered. After deployment, save the Chat ID and enable the opt-in checkbox in Aevora settings.
+- Event notifications include room joins, task assignment/division, comments, help requests, work submitted for host review, and host approval.

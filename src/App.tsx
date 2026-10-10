@@ -132,6 +132,7 @@ type Task = {
   subtasks?: Subtask[]
   groupRoomId?: number
   assignedTo?: string
+  createdBy?: string
   attachments?: TaskAttachment[]
   comments?: TaskComment[]
   helpRequests?: HelpRequest[]
@@ -181,6 +182,11 @@ const rewardItems = [
 type RewardUnlock = { id: string; unlockedAt: string }
 
 type Filter = 'ทั้งหมด' | 'กำลังทำ' | 'เสร็จแล้ว' | 'งานเดี่ยว' | 'งานกลุ่ม'
+
+function readSessionDraft(key: string, fallback = '') {
+  try { return window.sessionStorage.getItem(`aevora_draft_${key}`) ?? fallback }
+  catch { return fallback }
+}
 
 function getTaskProgress(task: Task) {
   if (task.done) return 100
@@ -253,14 +259,14 @@ function App() {
 
   const [editingId, setEditingId] = useState<number | null>(null)
 
-  const [title, setTitle] = useState('')
+  const [title, setTitle] = useState(() => readSessionDraft('title'))
 
-  const [subject, setSubject] = useState('')
+  const [subject, setSubject] = useState(() => readSessionDraft('subject'))
 
-  const [type, setType] = useState<'งานเดี่ยว' | 'งานกลุ่ม'>('งานเดี่ยว')
+  const [type, setType] = useState<'งานเดี่ยว' | 'งานกลุ่ม'>(() => readSessionDraft('type', 'งานเดี่ยว') as 'งานเดี่ยว' | 'งานกลุ่ม')
 
-  const [due, setDue] = useState('')
-  const [description, setDescription] = useState('')
+  const [due, setDue] = useState(() => readSessionDraft('due'))
+  const [description, setDescription] = useState(() => readSessionDraft('description'))
   const [taskRoomId, setTaskRoomId] = useState<number | ''>('')
   const [assignedTo, setAssignedTo] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -275,14 +281,14 @@ function App() {
   const [selectedRoomId] = useState<number | null>(null)
   const [selectedWorkspaceRoomId, setSelectedWorkspaceRoomId] = useState<number | null>(null)
   const [showGroupProjectForm, setShowGroupProjectForm] = useState(false)
-  const [groupProjectTitle, setGroupProjectTitle] = useState('')
-  const [groupProjectDescription, setGroupProjectDescription] = useState('')
-  const [groupProjectDueDate, setGroupProjectDueDate] = useState('')
-  const [groupProjectItems, setGroupProjectItems] = useState<{ title: string; assignedTo: string }[]>([{ title: '', assignedTo: '' }])
+  const [groupProjectTitle, setGroupProjectTitle] = useState(() => readSessionDraft('groupProjectTitle'))
+  const [groupProjectDescription, setGroupProjectDescription] = useState(() => readSessionDraft('groupProjectDescription'))
+  const [groupProjectDueDate, setGroupProjectDueDate] = useState(() => readSessionDraft('groupProjectDueDate'))
+  const [groupProjectItems, setGroupProjectItems] = useState<{ title: string; assignedTo: string }[]>(() => { try { return JSON.parse(readSessionDraft('groupProjectItems', '[{\"title\":\"\",\"assignedTo\":\"\"}]')) as { title: string; assignedTo: string }[] } catch { return [{ title: '', assignedTo: '' }] } })
   const [memberDisplayNames, setMemberDisplayNames] = useState<Record<string, string>>({})
   useEffect(() => {
     const inviteCode = new URLSearchParams(window.location.search).get('join')
-    if (inviteCode) { setJoinRoomCode(inviteCode.toUpperCase()); setActiveNav('งานกลุ่ม') }
+    if (inviteCode) { setJoinRoomCode(inviteCode.toUpperCase()); navigateTo('งานกลุ่ม') }
   }, [])
   const [selectedCharacter, setSelectedCharacter] = useState(() => { const saved = localStorage.getItem('aevora_character'); return saved && CHARACTER_OPTIONS.some(item => item.id === saved) ? saved : 'g1' })
   const [selectedGender, setSelectedGender] = useState<'หญิง' | 'ชาย'>(() => localStorage.getItem('aevora_character_gender') === 'ชาย' ? 'ชาย' : 'หญิง')
@@ -354,20 +360,18 @@ function App() {
     return () => { cancelled = true }
   }, [authSession?.user?.id, cloudReady])
 
-  // Resolve member display names from their saved Aevora profile where RLS permits it.
+  // Resolve member display names from the shared public-profile table.
   useEffect(() => {
     let cancelled = false
     async function loadMemberNames() {
       const ids = [...new Set(groupRooms.flatMap(room => room.members.map(member => member.userId)))]
       const names: Record<string, string> = {}
-      if (authSession?.user?.id) names[authSession.user.id] = profileName || 'คุณ'
+      if (authSession?.user?.id) names[authSession.user.id] = profileName || String(authSession.user.user_metadata?.display_name || 'คุณ')
       if (supabase && ids.length) {
         try {
-          const { data } = await supabase.from('user_settings').select('user_id,app_data').in('user_id', ids)
-          for (const row of data || []) {
-            const appData = row.app_data as { profile?: { name?: string } } | null
-            if (appData?.profile?.name) names[row.user_id] = appData.profile.name
-          }
+          const { data, error } = await supabase.from('user_profiles').select('user_id,display_name').in('user_id', ids)
+          if (error) throw error
+          for (const row of data || []) if (row.display_name) names[row.user_id] = row.display_name
         } catch (error) {
           console.warn('ไม่สามารถอ่านชื่อโปรไฟล์สมาชิกบางคนได้:', error)
         }
@@ -377,6 +381,19 @@ function App() {
     void loadMemberNames()
     return () => { cancelled = true }
   }, [groupRooms, authSession?.user?.id, profileName])
+
+  // Publish only the account's chosen display name to the member-visible profile table.
+  useEffect(() => {
+    if (!supabase || !authSession?.user?.id || !cloudReady) return
+    const displayName = (profileName || String(authSession.user.user_metadata?.display_name || 'สมาชิก')).trim().slice(0, 32)
+    if (!displayName) return
+    void supabase.from('user_profiles').upsert(
+      { user_id: authSession.user.id, display_name: displayName, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' },
+    ).then(({ error }) => {
+      if (error) console.warn('บันทึกชื่อแสดงผลสมาชิกไม่สำเร็จ:', error.message)
+    })
+  }, [authSession?.user?.id, cloudReady, profileName])
 
   async function leaveGroupRoom(room: GroupRoom) {
     if (!supabase || !authSession?.user?.id) return
@@ -453,6 +470,7 @@ function App() {
       description: groupProjectDescription.trim(),
       groupRoomId: room.id,
       assignedTo: item.assignedTo,
+      createdBy: userId,
       progress: 0,
       done: false,
     }))
@@ -476,6 +494,7 @@ function App() {
             dueDate: task.dueDate,
             description: task.description,
             assignedTo: task.assignedTo,
+            createdBy: task.createdBy || userId,
             progress: task.progress,
             done: task.done,
           },
@@ -487,7 +506,7 @@ function App() {
       setGroupProjectDescription('')
       setGroupProjectDueDate('')
       setGroupProjectItems([{ title: '', assignedTo: userId }])
-      setShowGroupProjectForm(false)
+      navigateGroupProjectForm(false)
       setGroupRoomMessage(`บันทึกและแบ่งงานโปรเจกต์ “${newTasks[0].subject}” สำเร็จ ${newTasks.length} งาน`)
     } catch (error) {
       // Supabase/PostgREST errors are plain objects, not always Error instances.
@@ -543,6 +562,7 @@ function App() {
             id: Number(row.task_key) || Number(raw.id) || Number(row.id),
             type: 'งานกลุ่ม',
             groupRoomId: room?.id,
+            createdBy: String(row.created_by || raw.createdBy || ''),
           }
         })
         const remoteIds = new Set(remoteTasks.map(task => task.id))
@@ -585,7 +605,7 @@ function App() {
         const remoteTasks: Task[] = data.map(remote => {
           const room = groupRooms.find(item => item.dbId === remote.room_id)
           const raw = remote.task_data && typeof remote.task_data === 'object' ? remote.task_data as Record<string, unknown> : {}
-          return { ...(raw as unknown as Task), id: Number(remote.task_key) || Number(raw.id) || Number(remote.id), type: 'งานกลุ่ม', groupRoomId: room?.id }
+          return { ...(raw as unknown as Task), id: Number(remote.task_key) || Number(raw.id) || Number(remote.id), type: 'งานกลุ่ม', groupRoomId: room?.id, createdBy: String(remote.created_by || raw.createdBy || '') }
         })
         const remoteIds = new Set(remoteTasks.map(task => task.id))
         setTasks(current => {
@@ -606,16 +626,16 @@ function App() {
   useEffect(() => {
     if (!sharedTasksReady || !cloudReady || !supabase || !authSession?.user?.id) return
     let cancelled = false
-    const shared = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId !== undefined)
+    const shared = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId !== undefined && canManageTask(task))
     const timer = window.setTimeout(async () => {
       for (const task of shared) {
         const room = groupRooms.find(item => item.id === task.groupRoomId)
         if (!room?.dbId || cancelled) continue
         const { error } = await supabase!.from('group_tasks').upsert({
           room_id: room.dbId,
-          created_by: authSession!.user.id,
+          created_by: task.createdBy || authSession!.user.id,
           task_key: String(task.id),
-          task_data: { ...task, groupRoomId: undefined },
+          task_data: { ...task, createdBy: task.createdBy || authSession!.user.id, groupRoomId: undefined },
         }, { onConflict: 'room_id,task_key' })
         if (error) {
           console.error('บันทึกงานกลุ่มไม่สำเร็จ:', error.message)
@@ -739,7 +759,7 @@ function App() {
         // and is not copied into this account automatically.
         setTasks([])
         setGroupRooms([])
-        setProfileName('นักเดินทาง')
+        setProfileName(String(authSession.user.user_metadata?.display_name || 'นักเดินทาง'))
         setProfileEmoji('🌷')
         setProfileBio('ค่อย ๆ เติบโตไปทีละก้าว ✨')
         setSelectedCharacter('g1')
@@ -847,6 +867,118 @@ function App() {
 
   const selectedTask = tasks.find(task => task.id === selectedTaskId) ?? null
 
+  // Client-side navigation: keep the SPA mounted and store view state in browser history.
+  const getNavigationSnapshot = () => ({
+    aevoraNav: activeNav,
+    selectedWorkspaceRoomId,
+    selectedTaskId,
+    showForm,
+    editingId,
+    showGroupProjectForm,
+  })
+
+  function navigateTo(nextNav: string) {
+    window.history.pushState(
+      { ...getNavigationSnapshot(), aevoraNav: nextNav },
+      '',
+      window.location.href,
+    )
+    setActiveNav(nextNav)
+  }
+
+  function navigateWorkspaceRoom(roomId: number | null) {
+    window.history.pushState(
+      { ...getNavigationSnapshot(), selectedWorkspaceRoomId: roomId },
+      '',
+      window.location.href,
+    )
+    setSelectedWorkspaceRoomId(roomId)
+  }
+
+  function navigateTask(taskId: number | null, formOpen = false) {
+    window.history.pushState(
+      { ...getNavigationSnapshot(), selectedTaskId: taskId, showForm: formOpen },
+      '',
+      window.location.href,
+    )
+    setSelectedTaskId(taskId)
+    setShowForm(formOpen)
+  }
+
+  function navigateTaskForm(open: boolean, taskId: number | null = selectedTaskId) {
+    window.history.pushState(
+      { ...getNavigationSnapshot(), selectedTaskId: taskId, showForm: open },
+      '',
+      window.location.href,
+    )
+    setSelectedTaskId(taskId)
+    setShowForm(open)
+  }
+
+  function navigateGroupProjectForm(open: boolean) {
+    window.history.pushState(
+      { ...getNavigationSnapshot(), showGroupProjectForm: open },
+      '',
+      window.location.href,
+    )
+    setShowGroupProjectForm(open)
+  }
+
+  useEffect(() => {
+    // Keep a baseline history entry so Back/Forward restores app views, not a page reload.
+    if (!window.history.state?.aevoraNav) {
+      window.history.replaceState(
+        { ...getNavigationSnapshot(), aevoraNav: activeNav },
+        '',
+        window.location.href,
+      )
+    }
+    const onPopState = (event: PopStateEvent) => {
+      const state = event.state as {
+        aevoraNav?: string
+        selectedWorkspaceRoomId?: number | null
+        selectedTaskId?: number | null
+        showForm?: boolean
+        editingId?: number | null
+        showGroupProjectForm?: boolean
+      } | null
+      if (!state?.aevoraNav) return
+      setActiveNav(state.aevoraNav)
+      setSelectedWorkspaceRoomId(state.selectedWorkspaceRoomId ?? null)
+      setSelectedTaskId(state.selectedTaskId ?? null)
+      setShowForm(Boolean(state.showForm))
+      setEditingId(state.editingId ?? null)
+      setShowGroupProjectForm(Boolean(state.showGroupProjectForm))
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+    // Initialize one listener; the callback reads the state stored in each history entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const drafts: Record<string, string> = {
+      title, subject, type, due, description,
+      groupProjectTitle, groupProjectDescription, groupProjectDueDate,
+      groupProjectItems: JSON.stringify(groupProjectItems),
+    }
+    for (const [key, value] of Object.entries(drafts)) {
+      try { window.sessionStorage.setItem(`aevora_draft_${key}`, value) } catch { /* storage may be unavailable */ }
+    }
+  }, [title, subject, type, due, description, groupProjectTitle, groupProjectDescription, groupProjectDueDate, groupProjectItems])
+
+  function roomForTask(task: Task) {
+    return task.groupRoomId === undefined ? undefined : groupRooms.find(room => room.id === task.groupRoomId)
+  }
+
+  function canManageTask(task: Task) {
+    if (task.type !== 'งานกลุ่ม') return true
+    const userId = authSession?.user?.id
+    if (!userId) return false
+    const room = roomForTask(task)
+    return Boolean(room && (room.ownerId === userId || task.assignedTo === userId))
+  }
+
   const completed = tasks.filter(task => task.done).length
   const exp = completed * 100
   const level = Math.min(10, Math.floor(exp / 500) + 1)
@@ -928,12 +1060,17 @@ function App() {
     const dueText = due ? new Date(`${due}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }) : 'ยังไม่กำหนด'
 
     if (editingId !== null) {
+      const existingTask = tasks.find(task => task.id === editingId)
+      if (existingTask && !canManageTask(existingTask)) {
+        setGroupRoomMessage('คุณแก้ไขงานนี้ไม่ได้ เฉพาะผู้รับผิดชอบและโฮสต์ของห้องเท่านั้น')
+        return
+      }
 
       setTasks(current => current.map(task => task.id === editingId ? { ...task, title: title.trim(), subject: subject.trim() || 'งานทั่วไป', type, due: dueText, dueDate: due || undefined, description: description.trim(), groupRoomId: type === 'งานกลุ่ม' && taskRoomId !== '' ? taskRoomId : undefined, assignedTo: type === 'งานกลุ่ม' ? (assignedTo.trim() || undefined) : undefined } : task))
 
     } else {
       const newId = Date.now()
-      setTasks(current => [...current, { id: newId, title: title.trim(), subject: subject.trim() || 'งานทั่วไป', type, due: dueText, dueDate: due || undefined, description: description.trim(), groupRoomId: type === 'งานกลุ่ม' && taskRoomId !== '' ? taskRoomId : undefined, assignedTo: type === 'งานกลุ่ม' ? (assignedTo.trim() || undefined) : undefined, subtasks: [], progress: 0, done: false }])
+      setTasks(current => [...current, { id: newId, title: title.trim(), subject: subject.trim() || 'งานทั่วไป', type, due: dueText, dueDate: due || undefined, description: description.trim(), groupRoomId: type === 'งานกลุ่ม' && taskRoomId !== '' ? taskRoomId : undefined, assignedTo: type === 'งานกลุ่ม' ? (assignedTo.trim() || undefined) : undefined, createdBy: type === 'งานกลุ่ม' ? authSession?.user?.id : undefined, subtasks: [], progress: 0, done: false }])
       setSelectedTaskId(newId)
     }
 
@@ -942,19 +1079,25 @@ function App() {
   }
 
   function startEdit(task: Task) {
+    if (!canManageTask(task)) {
+      setGroupRoomMessage('คุณแก้ไขงานนี้ไม่ได้ เฉพาะผู้รับผิดชอบและโฮสต์ของห้องเท่านั้น')
+      return
+    }
 
-    setSelectedTaskId(task.id)
+    navigateTask(task.id, true)
     setEditingId(task.id); setTitle(task.title); setSubject(task.subject); setType(task.type); setDescription(task.description || ''); setTaskRoomId(task.groupRoomId ?? ''); setAssignedTo(task.assignedTo || '')
 
     setDue(task.dueDate || '')
-
-    setShowForm(true)
 
     window.scrollTo({ top: 0, behavior: 'smooth' })
 
   }
 
   async function deleteTask(task: Task) {
+    if (!canManageTask(task)) {
+      setGroupRoomMessage('คุณแก้ไขหรือลบงานนี้ไม่ได้ เฉพาะผู้รับผิดชอบและโฮสต์ของห้องเท่านั้น')
+      return
+    }
     if (!window.confirm(`ต้องการลบงาน “${task.title}” ใช่ไหม?`)) return
     if (task.type === 'งานกลุ่ม' && task.groupRoomId !== undefined && supabase) {
       const room = groupRooms.find(item => item.id === task.groupRoomId)
@@ -973,10 +1116,20 @@ function App() {
   }
 
   function toggleTask(id: number) {
+    const target = tasks.find(task => task.id === id)
+    if (target && !canManageTask(target)) {
+      setGroupRoomMessage('คุณเปลี่ยนสถานะงานนี้ไม่ได้ เฉพาะผู้รับผิดชอบและโฮสต์ของห้องเท่านั้น')
+      return
+    }
     setTasks(current => current.map(task => task.id === id ? { ...task, done: !task.done, completedAt: task.done ? undefined : new Date().toISOString(), progress: task.done ? (task.subtasks?.length ? Math.round(task.subtasks.filter(item => item.done).length / task.subtasks.length * 100) : Math.min(task.progress, 99)) : 100 } : task))
   }
 
   function updateSubtasks(taskId: number, subtasks: Subtask[]) {
+    const target = tasks.find(task => task.id === taskId)
+    if (target && !canManageTask(target)) {
+      setGroupRoomMessage('คุณแก้ไขงานย่อยนี้ไม่ได้ เฉพาะผู้รับผิดชอบและโฮสต์ของห้องเท่านั้น')
+      return
+    }
     setTasks(current => current.map(task => {
       if (task.id !== taskId) return task
       const progress = subtasks.length ? Math.round(subtasks.filter(item => item.done).length / subtasks.length * 100) : task.progress
@@ -985,6 +1138,11 @@ function App() {
   }
 
   function updateTaskExtras(taskId: number, patch: Partial<Pick<Task, 'attachments' | 'comments' | 'helpRequests' | 'activity'>>) {
+    const target = tasks.find(task => task.id === taskId)
+    if (target && !canManageTask(target)) {
+      setGroupRoomMessage('คุณแก้ไขรายละเอียดงานนี้ไม่ได้ เฉพาะผู้รับผิดชอบและโฮสต์ของห้องเท่านั้น')
+      return
+    }
     setTasks(current => current.map(task => {
       if (task.id !== taskId) return task
       const activity = patch.activity ?? [...(task.activity || []), { id: Date.now(), text: 'มีการอัปเดตข้อมูลของงาน', createdAt: new Date().toISOString() }]
@@ -1032,7 +1190,7 @@ function App() {
       setSelectedTaskId(null)
       setShowForm(false)
       setEditingId(null)
-      setActiveNav('หน้าหลัก')
+      navigateTo('หน้าหลัก')
       setBackupMessage('นำเข้าข้อมูลสำเร็จแล้ว ตรวจสอบงานและพื้นที่ส่วนตัวได้เลย')
     } catch {
       setBackupMessage('อ่านไฟล์ไม่สำเร็จ กรุณาเลือกไฟล์ JSON สำรองของ Aevora')
@@ -1054,7 +1212,7 @@ function App() {
 
         <nav className="nav-list">
 
-          {navItems.map(item => <button type="button" className={`nav-item ${activeNav === item.key ? 'active' : ''}`} key={item.key} onClick={() => setActiveNav(item.key)}><span className="nav-icon"><img src={item.icon} alt="" /></span><span>{item.label}</span></button>)}
+          {navItems.map(item => <button type="button" className={`nav-item ${activeNav === item.key ? 'active' : ''}`} key={item.key} onClick={() => navigateTo(item.key)}><span className="nav-icon"><img src={item.icon} alt="" /></span><span>{item.label}</span></button>)}
 
         </nav>
 
@@ -1068,7 +1226,7 @@ function App() {
 
           <div className="welcome"><div className="avatar">{profileEmoji}</div><div className="welcome-copy"><div className="welcome-title-wrap"><span className="welcome-tree" aria-hidden="true">🪴</span><h1 className="welcome-title">สวัสดี {profileName || 'เพื่อน'} ✦</h1></div><p>{profileBio || 'วันนี้เรามาค่อย ๆ ทำให้สำเร็จกัน'}</p></div></div>
 
-          <div className="topbar-right"><div className="quote">“ทุกงานเล็ก ๆ คือก้าวไปใกล้ความสำเร็จ”</div><button className="icon-button" aria-label="ค้นหา" onClick={() => { setActiveNav('งานของฉัน'); document.getElementById('task-search')?.focus() }}>⌕</button><div className="notification-wrap"><button type="button" className="icon-button notification-button" aria-label="การแจ้งเตือน" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}>♧{dueNotifications.length > 0 && <span className="notification-badge">{dueNotifications.length > 9 ? '9+' : dueNotifications.length}</span>}</button>{notificationsOpen && <div className="notification-popover"><div className="notification-popover-heading"><div><strong>การแจ้งเตือน</strong><small>งานที่ใกล้ถึงกำหนดใน 3 วัน</small></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="ปิดการแจ้งเตือน">×</button></div>{dueNotifications.length === 0 ? <p className="notification-empty">ยังไม่มีงานใกล้ถึงกำหนด ✨</p> : <><p className="notification-summary">{overdueCount > 0 ? `มีงานเลยกำหนด ${overdueCount} งาน` : `มีงานใกล้ถึงกำหนด ${dueNotifications.length} งาน`}</p><div className="notification-list">{dueNotifications.map(task => <button type="button" className="notification-item" key={task.id} onClick={() => { setSelectedTaskId(task.id); setShowForm(false); setEditingId(null); setActiveNav('งานของฉัน'); setNotificationsOpen(false) }}><span className={`notification-dot ${(task.dueDate || '') < todayKey ? 'overdue' : ''}`}/><span className="notification-item-text"><strong>{task.title}</strong><small>{(task.dueDate || '') < todayKey ? 'เลยกำหนดส่ง' : (task.dueDate || '') === todayKey ? 'ครบกำหนดวันนี้' : `กำหนดส่ง ${new Date(`${task.dueDate}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}`}</small></span><span className="notification-arrow">›</span></button>)}</div></>}</div>}</div><div className={`level-pill ${activeNav === 'หน้าหลัก' ? 'level-pill-home' : 'level-pill-with-rank'}`}>{activeNav !== 'หน้าหลัก' && <img className="profile-rank-icon" src={rankImage} alt={`Rank ${rankTier}`} title={`Rank ${rankTier}`} />}<span className="level-avatar">🌙</span><div><strong>Lv. {level}</strong><small>{exp} EXP</small></div></div><span className="aevora-cloud-status" title="สถานะการซิงก์">☁ {cloudStatus}</span><button type="button" className="aevora-logout-button" onClick={async () => { if (!supabase) return; const { error } = await supabase.auth.signOut(); if (error) window.alert(`ออกจากระบบไม่สำเร็จ: ${error.message}`) }}>ออกจากระบบ</button></div>
+          <div className="topbar-right"><div className="quote">“ทุกงานเล็ก ๆ คือก้าวไปใกล้ความสำเร็จ”</div><button className="icon-button" aria-label="ค้นหา" onClick={() => { navigateTo('งานของฉัน'); document.getElementById('task-search')?.focus() }}>⌕</button><div className="notification-wrap"><button type="button" className="icon-button notification-button" aria-label="การแจ้งเตือน" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}>♧{dueNotifications.length > 0 && <span className="notification-badge">{dueNotifications.length > 9 ? '9+' : dueNotifications.length}</span>}</button>{notificationsOpen && <div className="notification-popover"><div className="notification-popover-heading"><div><strong>การแจ้งเตือน</strong><small>งานที่ใกล้ถึงกำหนดใน 3 วัน</small></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="ปิดการแจ้งเตือน">×</button></div>{dueNotifications.length === 0 ? <p className="notification-empty">ยังไม่มีงานใกล้ถึงกำหนด ✨</p> : <><p className="notification-summary">{overdueCount > 0 ? `มีงานเลยกำหนด ${overdueCount} งาน` : `มีงานใกล้ถึงกำหนด ${dueNotifications.length} งาน`}</p><div className="notification-list">{dueNotifications.map(task => <button type="button" className="notification-item" key={task.id} onClick={() => { navigateTask(task.id, false); setEditingId(null); navigateTo('งานของฉัน'); setNotificationsOpen(false) }}><span className={`notification-dot ${(task.dueDate || '') < todayKey ? 'overdue' : ''}`}/><span className="notification-item-text"><strong>{task.title}</strong><small>{(task.dueDate || '') < todayKey ? 'เลยกำหนดส่ง' : (task.dueDate || '') === todayKey ? 'ครบกำหนดวันนี้' : `กำหนดส่ง ${new Date(`${task.dueDate}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}`}</small></span><span className="notification-arrow">›</span></button>)}</div></>}</div>}</div><div className={`level-pill ${activeNav === 'หน้าหลัก' ? 'level-pill-home' : 'level-pill-with-rank'}`}>{activeNav !== 'หน้าหลัก' && <img className="profile-rank-icon" src={rankImage} alt={`Rank ${rankTier}`} title={`Rank ${rankTier}`} />}<span className="level-avatar">🌙</span><div><strong>Lv. {level}</strong><small>{exp} EXP</small></div></div><span className="aevora-cloud-status" title="สถานะการซิงก์">☁ {cloudStatus}</span><button type="button" className="aevora-logout-button" onClick={async () => { if (!supabase) return; const { error } = await supabase.auth.signOut(); if (error) window.alert(`ออกจากระบบไม่สำเร็จ: ${error.message}`) }}>ออกจากระบบ</button></div>
 
         </header>
 
@@ -1107,7 +1265,7 @@ function App() {
         </section>}
         {activeNav === 'พื้นที่ส่วนตัว' && <section className="panel customization-page"><div className="panel-heading"><div><h2>พื้นที่ส่วนตัวของฉัน</h2><p className="muted">จัดห้องเล็ก ๆ ให้เป็นพื้นที่ที่ชอบ การเลือกจะถูกบันทึกในเบราว์เซอร์นี้</p></div><span className="gamification-level">Lv. {level}</span></div><div className="customization-preview" style={{ backgroundImage: `linear-gradient(180deg, rgba(38, 25, 61, .28), rgba(38, 25, 61, .72)), url(${selectedRoomOption.file})` }}><div className="preview-stars">✦　☾　✧</div><div className="preview-room-icon">{selectedRoomOption.icon}</div><div className="preview-character"><img src={(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).file} alt="ตัวละครที่เลือก" /></div><div className="preview-pet"><img src={selectedPetOption.file} alt={selectedPetOption.name} /></div><div className="preview-decorations" aria-label="ของตกแต่งที่ติดตั้ง">{rewardItems.filter(item => equippedDecorations.includes(item.id) && rewardUnlocks.some(unlock => unlock.id === item.id)).map(item => <span key={item.id} title={item.name}>{item.icon}</span>)}</div><h3>{selectedRoomTheme}</h3><p>{characterLabel(selectedCharacter)} · เพื่อนคู่ใจ {selectedPetOption.name}</p><small className="preview-decoration-caption">ของตกแต่งที่ติดตั้ง {equippedDecorations.filter(id => rewardUnlocks.some(unlock => unlock.id === id)).length} ชิ้น</small></div><div className="customization-section"><h3>เลือกบรรยากาศห้อง</h3><p className="muted">เลือกฉากที่ชอบเพื่อเปลี่ยนพื้นหลังทั้งตัวอย่างห้องและแบนเนอร์หน้าแรกได้ทันที ✨</p><div className="room-theme-grid">{ROOM_OPTIONS.map(item => <button type="button" key={item.theme} className={`room-theme-card ${selectedRoomTheme === item.theme ? 'selected' : ''}`} onClick={() => setSelectedRoomTheme(item.theme)} aria-pressed={selectedRoomTheme === item.theme}><span className="room-theme-image"><img src={item.file} alt={item.name} loading="lazy" />{selectedRoomTheme === item.theme && <span className="room-theme-check">✓ เลือกแล้ว</span>}</span><strong>{item.icon} {item.name}</strong><small>{item.description}</small></button>)}</div></div><div className="customization-section"><h3>ตัวละครของฉัน</h3><div className="character-gender-tabs"><button type="button" className={selectedGender === 'หญิง' ? 'active' : ''} onClick={() => setSelectedGender('หญิง')}>🌸 หญิง (g)</button><button type="button" className={selectedGender === 'ชาย' ? 'active' : ''} onClick={() => setSelectedGender('ชาย')}>🌙 ชาย (b)</button></div><div className="character-choice-grid">{CHARACTER_OPTIONS.filter(item => item.gender === selectedGender).map(item => <button type="button" key={item.id} className={`character-choice-card ${selectedCharacter === item.id ? 'selected' : ''}`} onClick={() => { setSelectedCharacter(item.id); setSelectedGender(item.gender) }} aria-pressed={selectedCharacter === item.id}><span className="character-choice-image"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small>{item.id.toUpperCase()}</small>{selectedCharacter === item.id && <span className="choice-check">✓ เลือกแล้ว</span>}</button>)}</div></div><div className="customization-section"><h3>สัตว์เลี้ยงคู่ใจ</h3><div className="pet-choice-grid">{PET_OPTIONS.map(item => { const value = `${item.id} ${item.name}`; return <button type="button" key={item.id} className={`pet-choice-card ${selectedPet === value ? 'selected' : ''}`} onClick={() => setSelectedPet(value)} aria-pressed={selectedPet === value}><span className="pet-choice-icon"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small className="pet-choice-id">{item.id.toUpperCase()}</small>{selectedPet === value && <small>✓ เลือกแล้ว</small>}</button>})}</div></div></section>}
         {activeNav === 'ตัวละคร' && <section className="panel customization-page character-select-page"><div className="panel-heading"><div className="character-page-title"><img src="/images/decorations/character-decoration.png" alt="" /><div><h2>✨ ตัวละครและสัตว์เลี้ยง</h2><p className="muted">เลือกตัวตนและคู่หูที่ชอบได้ตามใจ ไม่ต้องปลดล็อกด้วยเลเวล</p></div></div><span className="gamification-level">Lv. {level} · {exp} EXP</span></div><div className="character-showcase character-showcase-art"><div className="showcase-character-art"><img src={(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).file} alt="ตัวละครที่เลือก" /></div><div className="showcase-copy"><span className="soft-kicker">YOUR LITTLE UNIVERSE</span><h3>{(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).name}</h3><p className="muted">รหัสตัวละคร {(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).id.toUpperCase()} · {selectedGender}</p><div className="selected-pet-pill"><img src={selectedPetOption.file} alt="" /><span>เพื่อนคู่ใจ: {selectedPetOption.name}</span></div><p className="muted">การเลือกจะบันทึกไว้ในเบราว์เซอร์นี้โดยอัตโนมัติ</p></div></div><div className="customization-section"><h3>🌷 เลือกตัวละคร</h3><div className="character-gender-tabs"><button type="button" className={selectedGender === 'หญิง' ? 'active' : ''} onClick={() => setSelectedGender('หญิง')}>🌸 ตัวละครหญิง (g1–g7)</button><button type="button" className={selectedGender === 'ชาย' ? 'active' : ''} onClick={() => setSelectedGender('ชาย')}>🌙 ตัวละครชาย (b1–b5)</button></div><div className="character-choice-grid">{CHARACTER_OPTIONS.filter(item => item.gender === selectedGender).map(item => <button type="button" key={item.id} className={`character-choice-card ${selectedCharacter === item.id ? 'selected' : ''}`} onClick={() => { setSelectedCharacter(item.id); setSelectedGender(item.gender) }} aria-pressed={selectedCharacter === item.id}><span className="character-choice-image"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small>{item.id.toUpperCase()}</small>{selectedCharacter === item.id && <span className="choice-check">✓ เลือกแล้ว</span>}</button>)}</div></div><div className="customization-section"><h3>🐾 เลือกสัตว์เลี้ยง</h3><div className="pet-choice-grid">{PET_OPTIONS.map(item => { const value = `${item.id} ${item.name}`; return <button type="button" key={item.id} className={`pet-choice-card ${selectedPet === value ? 'selected' : ''}`} onClick={() => setSelectedPet(value)} aria-pressed={selectedPet === value}><span className="pet-choice-icon"><img src={item.file} alt={item.name} loading="lazy" /></span><strong>{item.name}</strong><small className="pet-choice-id">{item.id.toUpperCase()}</small>{selectedPet === value && <small>✓ เลือกแล้ว</small>}</button>})}</div></div></section>}
-        {activeNav === 'คลังไอเทม' && <section className="panel customization-page"><div className="panel-heading"><div><h2>คลังไอเทม</h2><p className="muted">ทำงานให้สำเร็จเพื่อรับไอเทมสะสมและบันทึกประวัติการปลดล็อก</p></div><span className="gamification-level">ได้รับแล้ว {rewardUnlocks.length} / {rewardItems.length}</span></div><div className="reward-progress-summary"><span>🎁</span><div><strong>รางวัลจากงานที่สำเร็จ</strong><p>ตอนนี้ทำสำเร็จแล้ว {completed} งาน ไอเทมใหม่จะได้รับอัตโนมัติเมื่อถึงเป้าหมาย</p></div></div><div className="inventory-grid">{rewardItems.map(item => { const unlocked = rewardUnlocks.some(reward => reward.id === item.id); const unlock = rewardUnlocks.find(reward => reward.id === item.id); return <article className={`inventory-item ${unlocked ? 'available' : 'locked'}`} key={item.id}><span>{item.icon}</span><strong>{item.name}</strong><small>{unlocked ? 'ได้รับแล้ว ✓' : `ทำงานสำเร็จ ${item.goal} งาน`}</small><p>{item.description}</p>{unlock && <time dateTime={unlock.unlockedAt}>ปลดล็อก {new Date(unlock.unlockedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</time>}<button type="button" className="inventory-equip-button" disabled={!unlocked} onClick={() => { toggleDecoration(item.id); setActiveNav('พื้นที่ส่วนตัว') }}>{equippedDecorations.includes(item.id) ? 'ติดตั้งแล้ว · จัดการ' : unlocked ? 'นำไปตกแต่ง' : 'ยังล็อกอยู่'}</button></article>})}</div><div className="reward-history"><div className="task-extra-heading"><h3>ประวัติการปลดล็อก</h3><span>{rewardUnlocks.length} รายการ</span></div>{rewardUnlocks.length ? <ul>{rewardUnlocks.slice().sort((a,b) => b.unlockedAt.localeCompare(a.unlockedAt)).map(reward => { const item = rewardItems.find(entry => entry.id === reward.id); if (!item) return null; return <li key={reward.id}><span>{item.icon}</span><div><strong>{item.name}</strong><small>{new Date(reward.unlockedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</small></div><b>ได้รับแล้ว</b></li>})}</ul> : <p className="task-extra-empty">ทำงานสำเร็จตามเป้าหมาย แล้วรางวัลแรกจะปรากฏที่นี่ ✨</p>}</div></section>}
+        {activeNav === 'คลังไอเทม' && <section className="panel customization-page"><div className="panel-heading"><div><h2>คลังไอเทม</h2><p className="muted">ทำงานให้สำเร็จเพื่อรับไอเทมสะสมและบันทึกประวัติการปลดล็อก</p></div><span className="gamification-level">ได้รับแล้ว {rewardUnlocks.length} / {rewardItems.length}</span></div><div className="reward-progress-summary"><span>🎁</span><div><strong>รางวัลจากงานที่สำเร็จ</strong><p>ตอนนี้ทำสำเร็จแล้ว {completed} งาน ไอเทมใหม่จะได้รับอัตโนมัติเมื่อถึงเป้าหมาย</p></div></div><div className="inventory-grid">{rewardItems.map(item => { const unlocked = rewardUnlocks.some(reward => reward.id === item.id); const unlock = rewardUnlocks.find(reward => reward.id === item.id); return <article className={`inventory-item ${unlocked ? 'available' : 'locked'}`} key={item.id}><span>{item.icon}</span><strong>{item.name}</strong><small>{unlocked ? 'ได้รับแล้ว ✓' : `ทำงานสำเร็จ ${item.goal} งาน`}</small><p>{item.description}</p>{unlock && <time dateTime={unlock.unlockedAt}>ปลดล็อก {new Date(unlock.unlockedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</time>}<button type="button" className="inventory-equip-button" disabled={!unlocked} onClick={() => { toggleDecoration(item.id); navigateTo('พื้นที่ส่วนตัว') }}>{equippedDecorations.includes(item.id) ? 'ติดตั้งแล้ว · จัดการ' : unlocked ? 'นำไปตกแต่ง' : 'ยังล็อกอยู่'}</button></article>})}</div><div className="reward-history"><div className="task-extra-heading"><h3>ประวัติการปลดล็อก</h3><span>{rewardUnlocks.length} รายการ</span></div>{rewardUnlocks.length ? <ul>{rewardUnlocks.slice().sort((a,b) => b.unlockedAt.localeCompare(a.unlockedAt)).map(reward => { const item = rewardItems.find(entry => entry.id === reward.id); if (!item) return null; return <li key={reward.id}><span>{item.icon}</span><div><strong>{item.name}</strong><small>{new Date(reward.unlockedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</small></div><b>ได้รับแล้ว</b></li>})}</ul> : <p className="task-extra-empty">ทำงานสำเร็จตามเป้าหมาย แล้วรางวัลแรกจะปรากฏที่นี่ ✨</p>}</div></section>}
         {activeNav === 'ตั้งค่า' && <section className="panel profile-settings-page">
           <div className="panel-heading"><div><h2>โปรไฟล์และข้อมูลของฉัน</h2><p className="muted">ปรับข้อมูลที่แสดงบนหน้า Aevora และสำรองข้อมูลไว้ได้</p></div><span className="gamification-level">Lv. {level}</span></div>
           <div className="profile-card"><div className="profile-avatar-large">{profileEmoji}</div><div><h3>{profileName || 'เพื่อนของ Aevora'}</h3><p>{profileBio}</p><small>{completed} งานสำเร็จ · {exp} EXP · Streak {streak} วัน</small></div></div>
@@ -1120,13 +1278,13 @@ function App() {
           <div className="backup-section"><div><h3>🗂️ สำรองและย้ายข้อมูล</h3><p>ดาวน์โหลดงาน ห้องกลุ่ม โปรไฟล์ ตัวละคร และรางวัลเป็นไฟล์ JSON เพื่อเก็บสำรองหรือย้ายไปเบราว์เซอร์อื่น</p></div><div className="backup-actions"><button type="button" className="profile-primary-button" onClick={exportBackup}>ดาวน์โหลดไฟล์สำรอง</button><label className="backup-import-button">นำเข้าไฟล์สำรอง<input type="file" accept="application/json,.json" onChange={event => { void importBackup(event.currentTarget.files?.[0]); event.currentTarget.value = '' }} /></label></div><small>หมายเหตุ: ไฟล์แนบที่เก็บใน IndexedDB จะไม่รวมอยู่ในไฟล์สำรองนี้ และข้อมูลยังไม่ซิงก์ออนไลน์</small>{backupMessage && <p className="backup-message" role="status">{backupMessage}</p>}</div>
           <div className="profile-data-summary"><h3>ข้อมูลที่อยู่ในเบราว์เซอร์นี้</h3><div><span>งานทั้งหมด</span><strong>{tasks.length}</strong></div><div><span>ห้องงานกลุ่ม</span><strong>{groupRooms.length}</strong></div><div><span>ไอเทมที่ปลดล็อก</span><strong>{rewardUnlocks.length}</strong></div></div>
         </section>}
-        {activeNav !== 'หน้าหลัก' && activeNav !== 'งานของฉัน' && activeNav !== 'งานกลุ่ม' && activeNav !== 'ปฏิทิน' && activeNav !== 'ภารกิจ' && activeNav !== 'ความสำเร็จ' && activeNav !== 'พื้นที่ส่วนตัว' && activeNav !== 'ตัวละคร' && activeNav !== 'คลังไอเทม' && activeNav !== 'เชิญเพื่อน' && activeNav !== 'ตั้งค่า' && <div className="section-notice"><span>✦</span><div><strong>{activeNav}</strong><p>ส่วนนี้เราจะเชื่อมกับข้อมูลจริงในขั้นถัดไปค่ะ</p></div><button onClick={() => setActiveNav('หน้าหลัก')}>กลับหน้าหลัก</button></div>}
+        {activeNav !== 'หน้าหลัก' && activeNav !== 'งานของฉัน' && activeNav !== 'งานกลุ่ม' && activeNav !== 'ปฏิทิน' && activeNav !== 'ภารกิจ' && activeNav !== 'ความสำเร็จ' && activeNav !== 'พื้นที่ส่วนตัว' && activeNav !== 'ตัวละคร' && activeNav !== 'คลังไอเทม' && activeNav !== 'เชิญเพื่อน' && activeNav !== 'ตั้งค่า' && <div className="section-notice"><span>✦</span><div><strong>{activeNav}</strong><p>ส่วนนี้เราจะเชื่อมกับข้อมูลจริงในขั้นถัดไปค่ะ</p></div><button onClick={() => navigateTo('หน้าหลัก')}>กลับหน้าหลัก</button></div>}
 
         {activeNav === 'หน้าหลัก' && <>
 
           <section className="hero-grid">
 
-            <div className="hero-card"><div className="hero-overlay"><span className="eyebrow">YOUR LITTLE UNIVERSE ✦</span><h2>พื้นที่ของฉัน ✨</h2><p>มุมเล็ก ๆ ที่เต็มไปด้วยพลังในการทำงาน</p><button className="light-button" onClick={() => setActiveNav('พื้นที่ส่วนตัว')}>✿ ปรับแต่งพื้นที่</button></div><div className="hero-art"><img className="hero-room-image" src={selectedRoomOption.file} alt={selectedRoomOption.name}/><div className="hero-image-shade"/><img className="hero-character" src={(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).file} alt={`ตัวละคร ${characterLabel(selectedCharacter)} ที่เลือกไว้`} key={selectedCharacter}/><img className="hero-pet" src={selectedPetOption.file} alt={`สัตว์เลี้ยง ${selectedPetOption.name} ที่เลือกไว้`} key={selectedPetOption.id}/></div></div>
+            <div className="hero-card"><div className="hero-overlay"><span className="eyebrow">YOUR LITTLE UNIVERSE ✦</span><h2>พื้นที่ของฉัน ✨</h2><p>มุมเล็ก ๆ ที่เต็มไปด้วยพลังในการทำงาน</p><button className="light-button" onClick={() => navigateTo('พื้นที่ส่วนตัว')}>✿ ปรับแต่งพื้นที่</button></div><div className="hero-art"><img className="hero-room-image" src={selectedRoomOption.file} alt={selectedRoomOption.name}/><div className="hero-image-shade"/><img className="hero-character" src={(CHARACTER_OPTIONS.find(item => item.id === selectedCharacter) || CHARACTER_OPTIONS[0]).file} alt={`ตัวละคร ${characterLabel(selectedCharacter)} ที่เลือกไว้`} key={selectedCharacter}/><img className="hero-pet" src={selectedPetOption.file} alt={`สัตว์เลี้ยง ${selectedPetOption.name} ที่เลือกไว้`} key={selectedPetOption.id}/></div></div>
 
             <div className="level-card"><div className="level-heading"><img className="level-rank-icon" src={rankImage} alt={`Rank ${rankTier}`} title={`Rank ${rankTier}`} /><span className="exp-orb exp-orb-image"><img src="/images/icons/exp.png" alt="EXP" /></span><div className="level-details"><h2>Lv. {level} <span>›</span></h2><div className="progress-track"><div className="progress-fill exp-fill" style={{ width: `${(expInLevel / 500) * 100}%` }}/></div><small>{expInLevel} / 500 EXP</small></div></div><div className="stat-grid"><div className="stat-box"><span className="stat-icon-image"><img src="/images/icons/Streaks.png" alt="" /></span><small>งานที่เสร็จ</small><strong>{completed} งาน</strong></div><div className="stat-box"><span className="stat-icon-image"><img src="/images/icons/king.png" alt="" /></span><small>งานทั้งหมด</small><strong>{tasks.length} งาน</strong></div><div className="stat-box"><span className="stat-icon-image"><img src="/images/icons/petty.png" alt="" /></span><small>สัตว์เลี้ยง</small><strong>Lv. 5</strong><small>น้องภูผา</small></div></div></div>
 
@@ -1141,8 +1299,8 @@ function App() {
               completed={completed}
               toggleTask={toggleTask}
               deleteTask={deleteTask}
-              openTask={(task) => { setSelectedTaskId(task.id); setShowForm(false); setActiveNav(task.type === 'งานกลุ่ม' ? 'งานกลุ่ม' : 'งานของฉัน') }}
-              onViewAll={() => setActiveNav('งานของฉัน')}
+              openTask={(task) => { navigateTask(task.id, false); navigateTo(task.type === 'งานกลุ่ม' ? 'งานกลุ่ม' : 'งานของฉัน') }}
+              onViewAll={() => navigateTo('งานของฉัน')}
               onCreateTask={() => {
                 setSelectedTaskId(null)
                 setEditingId(null)
@@ -1153,16 +1311,16 @@ function App() {
                 setAssignedTo('')
                 setType('งานเดี่ยว')
                 setDue('')
-                setShowForm(true)
-                setActiveNav('งานของฉัน')
+                navigateTaskForm(true, null)
+                navigateTo('งานของฉัน')
               }}
             />
 
-            <div className="panel calendar-panel"><div className="panel-heading"><h2>▦ สรุปงาน</h2><button className="text-button" onClick={() => setActiveNav('งานของฉัน')}>ดูทั้งหมด →</button></div><div className="deadline-item"><span className="deadline-dot pink"/><span className="deadline-icon">▤</span><div><strong>งานที่ยังไม่เสร็จ</strong><small>มี {tasks.length - completed} งานที่ต้องจัดการ</small></div><b>{tasks.length - completed}</b></div><div className="deadline-item"><span className="deadline-dot green"/><span className="deadline-icon">✓</span><div><strong>งานที่เสร็จแล้ว</strong><small>ทำได้ดีมาก ค่อย ๆ ไปทีละขั้น</small></div><b>{completed}</b></div></div>
+            <div className="panel calendar-panel"><div className="panel-heading"><h2>▦ สรุปงาน</h2><button className="text-button" onClick={() => navigateTo('งานของฉัน')}>ดูทั้งหมด →</button></div><div className="deadline-item"><span className="deadline-dot pink"/><span className="deadline-icon">▤</span><div><strong>งานที่ยังไม่เสร็จ</strong><small>มี {tasks.length - completed} งานที่ต้องจัดการ</small></div><b>{tasks.length - completed}</b></div><div className="deadline-item"><span className="deadline-dot green"/><span className="deadline-icon">✓</span><div><strong>งานที่เสร็จแล้ว</strong><small>ทำได้ดีมาก ค่อย ๆ ไปทีละขั้น</small></div><b>{completed}</b></div></div>
 
           </section>
 
-          <section className="bottom-grid"><div className="panel projects-panel"><div className="panel-heading"><h2>♧ ภาพรวมงาน</h2><span className="muted">อัปเดตอัตโนมัติ</span></div><div className="project-row"><span className="project-icon purple">✿</span><div className="project-info"><strong>ความคืบหน้ารวม</strong><div className="mini-track"><div style={{ width: `${tasks.length ? (completed / tasks.length) * 100 : 0}%` }}/></div></div><b>{tasks.length ? Math.round((completed / tasks.length) * 100) : 0}%</b></div></div><div className="world-card"><span>YOUR OWN LITTLE WORLD</span><h2>พื้นที่เล็ก ๆ<br/>ของคนที่กำลังเติบโต</h2><p>ทุกงานที่ทำสำเร็จคืออีกหนึ่งก้าว</p><button onClick={() => setActiveNav('งานของฉัน')}>จัดการงานของฉัน →</button></div></section>
+          <section className="bottom-grid"><div className="panel projects-panel"><div className="panel-heading"><h2>♧ ภาพรวมงาน</h2><span className="muted">อัปเดตอัตโนมัติ</span></div><div className="project-row"><span className="project-icon purple">✿</span><div className="project-info"><strong>ความคืบหน้ารวม</strong><div className="mini-track"><div style={{ width: `${tasks.length ? (completed / tasks.length) * 100 : 0}%` }}/></div></div><b>{tasks.length ? Math.round((completed / tasks.length) * 100) : 0}%</b></div></div><div className="world-card"><span>YOUR OWN LITTLE WORLD</span><h2>พื้นที่เล็ก ๆ<br/>ของคนที่กำลังเติบโต</h2><p>ทุกงานที่ทำสำเร็จคืออีกหนึ่งก้าว</p><button onClick={() => navigateTo('งานของฉัน')}>จัดการงานของฉัน →</button></div></section>
 
         </>}
 
@@ -1182,7 +1340,7 @@ function App() {
               <div className="group-room-card-top"><span className="group-room-icon">♧</span><span className="group-room-count">{room.members.length} คน · {tasks.filter(task => task.groupRoomId === room.id).length} งาน</span></div>
               <h3>{room.name}</h3>
               <p className="group-room-code">รหัสห้อง <strong>{room.code}</strong><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(room.code); setGroupRoomMessage('คัดลอกรหัสห้องแล้ว') } catch { setGroupRoomMessage(`รหัสห้อง: ${room.code}`) } }}>คัดลอกรหัส</button></p>
-              <div className="group-room-invite-action"><button type="button" onClick={() => { setSelectedWorkspaceRoomId(room.id); setGroupRoomMessage(''); setActiveNav('เชิญเพื่อน') }}>เข้าสู่ห้องทำงาน →</button></div>
+              <div className="group-room-invite-action"><button type="button" onClick={() => { navigateTo('เชิญเพื่อน'); navigateWorkspaceRoom(room.id); setGroupRoomMessage('') }}>เข้าสู่ห้องทำงาน →</button></div>
               {room.ownerId !== authSession?.user?.id && <button type="button" className="group-room-delete" disabled={groupRoomBusy} onClick={() => void leaveGroupRoom(room)}>ออกจากกลุ่ม</button>}
               <div className="group-room-members"><strong>สมาชิกที่เข้าร่วมจริง</strong><div>{room.members.map(member => <span className="group-member-chip" key={`${room.dbId}-${member.userId}`}>👤 {memberDisplayNames[member.userId] || (member.userId === authSession?.user?.id ? profileName : `สมาชิก ${member.userId.slice(0, 6)}`)} {member.role === 'owner' ? '(เจ้าของห้อง)' : ''}</span>)}</div></div>
               {room.ownerId === authSession?.user?.id && <button type="button" className="group-room-delete" onClick={async () => {
@@ -1216,7 +1374,7 @@ function App() {
               {groupRoomMessage && <p className="task-inline-message" role="status">{groupRoomMessage}</p>}
               {activeRoom.ownerId === authSession?.user?.id && !showGroupProjectForm && <div className="group-project-start">
                 <div><strong>เริ่มดำเนินงานโปรเจกต์</strong><p>{activeRoom.members.length < 2 ? 'ต้องมีสมาชิกอย่างน้อย 2 คนในห้องก่อน จึงจะเริ่มแบ่งงานได้' : 'กำหนดรายละเอียดโปรเจกต์ แล้วแบ่งงานให้สมาชิก รวมถึงโฮสต์ได้'}</p></div>
-                <button type="button" disabled={activeRoom.members.length < 2} onClick={() => { setGroupProjectItems([{ title: '', assignedTo: authSession.user.id }]); setShowGroupProjectForm(true); setGroupRoomMessage('') }}>เริ่มทำงาน</button>
+                <button type="button" disabled={activeRoom.members.length < 2} onClick={() => { setGroupProjectItems([{ title: '', assignedTo: authSession.user.id }]); navigateGroupProjectForm(true); setGroupRoomMessage('') }}>เริ่มทำงาน</button>
               </div>}
               {showGroupProjectForm && activeRoom.ownerId === authSession?.user?.id && <form className="group-project-form" onSubmit={event => createGroupProject(event, activeRoom)}>
                 <h3>สร้างโปรเจกต์และแบ่งงาน</h3>
@@ -1231,7 +1389,7 @@ function App() {
                   </select>
                   {groupProjectItems.length > 1 && <button type="button" aria-label="ลบหัวข้องาน" onClick={() => setGroupProjectItems(items => items.filter((_, rowIndex) => rowIndex !== index))}>ลบ</button>}
                 </div>)}
-                <div className="group-project-form-actions"><button type="button" className="text-button" onClick={() => setShowGroupProjectForm(false)}>ยกเลิก</button><button type="submit" disabled={groupRoomBusy}>{groupRoomBusy ? 'กำลังบันทึก…' : 'เริ่มแบ่งงานทั้งหมด'}</button></div>
+                <div className="group-project-form-actions"><button type="button" className="text-button" onClick={() => navigateGroupProjectForm(false)}>ยกเลิก</button><button type="submit" disabled={groupRoomBusy}>{groupRoomBusy ? 'กำลังบันทึก…' : 'เริ่มแบ่งงานทั้งหมด'}</button></div>
               </form>}
               <div className="group-overview-stats"><div><strong>{activeRoom.members.length}</strong><span>สมาชิก</span></div><div><strong>{roomTasks.length}</strong><span>งานทั้งหมด</span></div><div><strong>{completedRoomTasks}</strong><span>งานเสร็จแล้ว</span></div><div><strong>{roomTasks.length - completedRoomTasks}</strong><span>งานที่เหลือ</span></div></div>
               <section className="group-overview-section"><div className="group-overview-section-heading"><div><h3>สมาชิกในห้อง</h3><p>ดูว่าใครกำลังทำงานอะไรอยู่</p></div></div>
@@ -1243,31 +1401,32 @@ function App() {
                   return <article className="group-overview-member" key={`${activeRoom.dbId}-${member.userId}`}><div className="group-overview-avatar">{member.userId === authSession?.user?.id ? '🌷' : '✨'}</div><div className="group-overview-member-main"><strong>{displayName}{member.role === 'owner' ? ' · โฮสต์' : ''}</strong><small>{memberTasks.length ? `${doneCount}/${memberTasks.length} งานเสร็จแล้ว` : 'ยังไม่มีงานที่ระบุผู้รับผิดชอบตรงกับสมาชิกนี้'}</small><div className="group-overview-track"><div style={{width: `${memberProgress}%`}} /></div></div><b>{memberProgress}%</b></article>
                 })}</div>
               </section>
-              <section className="group-overview-section"><div className="group-overview-section-heading"><div><h3>งานทั้งหมดของกลุ่ม</h3><p>ทุกคนดูความคืบหน้าได้ แต่แก้ไขได้เฉพาะงานที่มีสิทธิ์</p></div><button type="button" onClick={() => { setTaskRoomId(activeRoom.id); setType('งานกลุ่ม'); setTitle(''); setSubject(''); setDescription(''); setAssignedTo(''); setDue(''); setEditingId(null); setSelectedTaskId(null); setShowForm(true); setActiveNav('งานกลุ่ม') }}>＋ เพิ่มงาน</button></div>
-                {roomTasks.length ? <div className="group-overview-task-list">{roomTasks.map(task => <article className="group-overview-task" key={task.id}><div className={`group-overview-task-status ${task.done ? 'is-done' : getTaskProgress(task) > 0 ? 'is-progress' : ''}`}>{task.done ? '✓' : getTaskProgress(task) > 0 ? '◷' : '○'}</div><div className="group-overview-task-main"><strong>{task.title}</strong><small>{task.subject || 'ไม่มีรายละเอียดวิชา'} · ผู้รับผิดชอบ: {(task.assignedTo && (memberDisplayNames[task.assignedTo] || (task.assignedTo === authSession?.user?.id ? profileName : task.assignedTo))) || 'ยังไม่ได้มอบหมาย'}</small><div className="group-overview-track"><div style={{width: `${getTaskProgress(task)}%`}} /></div></div><div className="group-overview-task-meta"><b>{getTaskProgress(task)}%</b><span>{task.done ? 'เสร็จสิ้น' : getTaskProgress(task) > 0 ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span><button type="button" onClick={() => { setSelectedTaskId(task.id); setShowForm(false); setActiveNav('งานกลุ่ม') }}>ดูงาน</button>{task.done && (activeRoom.ownerId === authSession?.user?.id || task.assignedTo === authSession?.user?.id) && <button type="button" onClick={() => void finishGroupTask(task, activeRoom)}>จบงาน</button>}</div></article>)}</div> : <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีงานในห้องนี้</strong><p>เมื่อสร้างหรือแจกจ่ายงาน งานจะปรากฏในภาพรวมกลุ่มนี้</p><button type="button" onClick={() => { setTaskRoomId(activeRoom.id); setType('งานกลุ่ม'); setTitle(''); setSubject(''); setDescription(''); setAssignedTo(''); setDue(''); setEditingId(null); setSelectedTaskId(null); setShowForm(true); setActiveNav('งานกลุ่ม') }}>สร้างงานแรกของกลุ่ม</button></div>}
+              <section className="group-overview-section"><div className="group-overview-section-heading"><div><h3>งานทั้งหมดของกลุ่ม</h3><p>ทุกคนดูความคืบหน้าได้ แต่แก้ไขได้เฉพาะงานที่มีสิทธิ์</p></div>{activeRoom.ownerId === authSession?.user?.id && <button type="button" onClick={() => { setTaskRoomId(activeRoom.id); setType('งานกลุ่ม'); setTitle(''); setSubject(''); setDescription(''); setAssignedTo(authSession.user.id); setDue(''); setEditingId(null); navigateTo('งานกลุ่ม'); navigateTaskForm(true, null) }}>＋ เพิ่มงาน</button>}</div>
+                {roomTasks.length ? <div className="group-overview-task-list">{roomTasks.map(task => <article className="group-overview-task" key={task.id}><div className={`group-overview-task-status ${task.done ? 'is-done' : getTaskProgress(task) > 0 ? 'is-progress' : ''}`}>{task.done ? '✓' : getTaskProgress(task) > 0 ? '◷' : '○'}</div><div className="group-overview-task-main"><strong>{task.title}</strong><small>{task.subject || 'ไม่มีรายละเอียดวิชา'} · ผู้รับผิดชอบ: {(task.assignedTo && (memberDisplayNames[task.assignedTo] || (task.assignedTo === authSession?.user?.id ? profileName : task.assignedTo))) || 'ยังไม่ได้มอบหมาย'}</small><div className="group-overview-track"><div style={{width: `${getTaskProgress(task)}%`}} /></div></div><div className="group-overview-task-meta"><b>{getTaskProgress(task)}%</b><span>{task.done ? 'เสร็จสิ้น' : getTaskProgress(task) > 0 ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span><button type="button" onClick={() => { navigateTask(task.id, false); navigateTo('งานกลุ่ม') }}>ดูงาน</button>{task.done && (activeRoom.ownerId === authSession?.user?.id || task.assignedTo === authSession?.user?.id) && <button type="button" onClick={() => void finishGroupTask(task, activeRoom)}>จบงาน</button>}</div></article>)}</div> : <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีงานในห้องนี้</strong><p>เมื่อสร้างหรือแจกจ่ายงาน งานจะปรากฏในภาพรวมกลุ่มนี้</p>{activeRoom.ownerId === authSession?.user?.id && <button type="button" onClick={() => { setTaskRoomId(activeRoom.id); setType('งานกลุ่ม'); setTitle(''); setSubject(''); setDescription(''); setAssignedTo(authSession.user.id); setDue(''); setEditingId(null); navigateTo('งานกลุ่ม'); navigateTaskForm(true, null) }}>สร้างงานแรกของกลุ่ม</button>}</div>}
               </section>
             </> : <>
-              <div className="group-workspace-hub-heading"><div><span className="eyebrow">AEVORA · TEAM SPACE</span><h2>ห้องทำงานกลุ่ม</h2><p>เลือกห้องเพื่อดูความคืบหน้า งานของเพื่อน และสถานะของทั้งทีม</p></div><button type="button" onClick={() => setActiveNav('งานกลุ่ม')}>＋ สร้างหรือเข้าร่วมห้อง</button></div>
+              <div className="group-workspace-hub-heading"><div><span className="eyebrow">AEVORA · TEAM SPACE</span><h2>ห้องทำงานกลุ่ม</h2><p>เลือกห้องเพื่อดูความคืบหน้า งานของเพื่อน และสถานะของทั้งทีม</p></div><button type="button" onClick={() => navigateTo('งานกลุ่ม')}>＋ สร้างหรือเข้าร่วมห้อง</button></div>
               {groupRooms.length ? <div className="group-workspace-room-grid">{groupRooms.map(room => {
                 const roomTasksForCard = tasks.filter(task => task.groupRoomId === room.id)
                 const done = roomTasksForCard.filter(task => task.done).length
                 const progress = roomTasksForCard.length ? Math.round(roomTasksForCard.reduce((sum, task) => sum + getTaskProgress(task), 0) / roomTasksForCard.length) : 0
-                return <article className="group-workspace-room-card" key={room.dbId}><div className="group-workspace-room-card-top"><img src="/images/aevora-ui/group-room-icon.png" alt=""/><span>{room.members.length} สมาชิก</span></div><h3>{room.name}</h3><p>รหัสห้อง <strong>{room.code}</strong></p><div className="group-workspace-room-progress-label"><span>ความคืบหน้าของทีม</span><b>{progress}%</b></div><div className="group-overview-track"><div style={{width: `${progress}%`}} /></div><div className="group-workspace-room-card-footer"><span>{done}/{roomTasksForCard.length} งานเสร็จแล้ว</span><button type="button" onClick={() => setSelectedWorkspaceRoomId(room.id)}>เข้าสู่ห้องทำงาน →</button></div><div className="group-workspace-room-members">{room.members.slice(0, 4).map(member => <span key={member.userId} title={member.userId}>{member.userId === authSession?.user?.id ? `🌷 ${profileName}` : `✨ ${memberDisplayNames[member.userId] || 'สมาชิก'}`}</span>)}{room.members.length > 4 && <span>+{room.members.length - 4}</span>}</div></article>
-              })}</div> : <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีห้องทำงานกลุ่ม</strong><p>สร้างห้องใหม่หรือเข้าร่วมด้วยรหัสห้องก่อน แล้วห้องจะแสดงอยู่ที่นี่</p><button type="button" onClick={() => setActiveNav('งานกลุ่ม')}>ไปสร้างหรือเข้าร่วมห้อง</button></div>}
+                return <article className="group-workspace-room-card" key={room.dbId}><div className="group-workspace-room-card-top"><img src="/images/aevora-ui/group-room-icon.png" alt=""/><span>{room.members.length} สมาชิก</span></div><h3>{room.name}</h3><p>รหัสห้อง <strong>{room.code}</strong></p><div className="group-workspace-room-progress-label"><span>ความคืบหน้าของทีม</span><b>{progress}%</b></div><div className="group-overview-track"><div style={{width: `${progress}%`}} /></div><div className="group-workspace-room-card-footer"><span>{done}/{roomTasksForCard.length} งานเสร็จแล้ว</span><button type="button" onClick={() => navigateWorkspaceRoom(room.id)}>เข้าสู่ห้องทำงาน →</button></div><div className="group-workspace-room-members">{room.members.slice(0, 4).map(member => <span key={member.userId} title={member.userId}>{member.userId === authSession?.user?.id ? `🌷 ${profileName}` : `✨ ${memberDisplayNames[member.userId] || 'สมาชิก'}`}</span>)}{room.members.length > 4 && <span>+{room.members.length - 4}</span>}</div></article>
+              })}</div> : <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีห้องทำงานกลุ่ม</strong><p>สร้างห้องใหม่หรือเข้าร่วมด้วยรหัสห้องก่อน แล้วห้องจะแสดงอยู่ที่นี่</p><button type="button" onClick={() => navigateTo('งานกลุ่ม')}>ไปสร้างหรือเข้าร่วมห้อง</button></div>}
             </>}
           </section>
         })()}
 
-        {(activeNav === 'งานของฉัน' || activeNav === 'งานกลุ่ม') && !selectedTask && !showForm && <section className="panel tasks-panel task-manager"><div className="panel-heading"><div><h2>{activeNav === 'งานกลุ่ม' ? '♧ งานกลุ่ม' : '▣ งานของฉัน'}</h2><p className="muted">เพิ่ม แก้ไข ค้นหา และจัดการงานได้จากที่นี่</p></div><button className="text-button" onClick={() => { setSelectedTaskId(null); setEditingId(null); setTitle(''); setSubject(''); setDescription(''); setTaskRoomId(''); setAssignedTo(''); setType(activeNav === 'งานกลุ่ม' ? 'งานกลุ่ม' : 'งานเดี่ยว'); setDue(''); setShowForm(true) }}>+ สร้างงานใหม่</button></div>
+        {(activeNav === 'งานของฉัน' || activeNav === 'งานกลุ่ม') && !selectedTask && !showForm && <section className="panel tasks-panel task-manager"><div className="panel-heading"><div><h2>{activeNav === 'งานกลุ่ม' ? '♧ งานกลุ่ม' : '▣ งานของฉัน'}</h2><p className="muted">เพิ่ม แก้ไข ค้นหา และจัดการงานได้จากที่นี่</p></div>{(activeNav !== 'งานกลุ่ม' || groupRooms.some(room => room.ownerId === authSession?.user?.id)) && <button className="text-button" onClick={() => { setSelectedTaskId(null); setEditingId(null); setTitle(''); setSubject(''); setDescription(''); setTaskRoomId(''); setAssignedTo(''); setType(activeNav === 'งานกลุ่ม' ? 'งานกลุ่ม' : 'งานเดี่ยว'); setDue(''); navigateTaskForm(true, null) }}>+ สร้างงานใหม่</button>}</div>
 
           <input id="task-search" className="task-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาจากชื่องานหรือวิชา..." aria-label="ค้นหางาน"/><div className="task-filters filter-buttons">{(['ทั้งหมด', 'กำลังทำ', 'เสร็จแล้ว', 'งานเดี่ยว', 'งานกลุ่ม'] as Filter[]).map(item => <button key={item} className={filter === item ? 'filter-active' : ''} onClick={() => setFilter(item)}>{item}{item === 'ทั้งหมด' ? ` (${tasks.length})` : item === 'เสร็จแล้ว' ? ` (${completed})` : ''}</button>)}</div>
 
-          <div className="task-list">{filteredTasks.length ? filteredTasks.map(task => <div className={`task-row ${task.done ? 'task-done' : ''}`} key={task.id}><button className={`task-check ${task.done ? 'checked' : ''}`} onClick={() => toggleTask(task.id)} aria-label={task.done ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จแล้ว'}>{task.done ? '✓' : ''}</button><div className="task-info"><button type="button" className="task-title-link" onClick={() => setSelectedTaskId(task.id)}>{task.title}</button><small>{task.subject}</small>{(task.groupRoomId || task.assignedTo) && <small className="task-assignment-meta">{task.groupRoomId ? groupRooms.find(room => room.id === task.groupRoomId)?.name : ''}{task.groupRoomId && task.assignedTo ? ' · ' : ''}{task.assignedTo ? `ผู้รับผิดชอบ: ${task.assignedTo}` : ''}</small>}</div><span className={`task-type ${task.type === 'งานกลุ่ม' ? 'group-type' : ''}`}>{task.type}</span><span className="task-due">◷ {task.due}</span><div className="task-progress"><div className="mini-track"><div style={{ width: `${getTaskProgress(task)}%` }}/></div><small>{getTaskProgress(task)}%</small></div><div className="task-actions"><button type="button" onClick={() => startEdit(task)} aria-label={`แก้ไข ${task.title}`}>แก้ไข</button><button type="button" onClick={() => deleteTask(task)} aria-label={`ลบ ${task.title}`}>ลบ</button></div></div>) : <p className="empty-tasks">ไม่พบงานที่ตรงกับการค้นหา ลองเปลี่ยนคำค้นหาหรือตัวกรองนะ</p>}</div><div className="task-footer">ทำเสร็จแล้ว {completed} จาก {tasks.length} งาน ✦</div></section>}
+          <div className="task-list">{filteredTasks.length ? filteredTasks.map(task => <div className={`task-row ${task.done ? 'task-done' : ''}`} key={task.id}><button className={`task-check ${task.done ? 'checked' : ''}`} onClick={() => toggleTask(task.id)} disabled={!canManageTask(task)} aria-label={task.done ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จแล้ว'} title={!canManageTask(task) ? 'แก้ไขได้เฉพาะผู้รับผิดชอบหรือโฮสต์' : undefined}>{task.done ? '✓' : ''}</button><div className="task-info"><button type="button" className="task-title-link" onClick={() => navigateTask(task.id, false)}>{task.title}</button><small>{task.subject}</small>{(task.groupRoomId || task.assignedTo) && <small className="task-assignment-meta">{task.groupRoomId ? groupRooms.find(room => room.id === task.groupRoomId)?.name : ''}{task.groupRoomId && task.assignedTo ? ' · ' : ''}{task.assignedTo ? `ผู้รับผิดชอบ: ${memberDisplayNames[task.assignedTo] || (task.assignedTo === authSession?.user?.id ? profileName : task.assignedTo)}` : ''}</small>}</div><span className={`task-type ${task.type === 'งานกลุ่ม' ? 'group-type' : ''}`}>{task.type}</span><span className="task-due">◷ {task.due}</span><div className="task-progress"><div className="mini-track"><div style={{ width: `${getTaskProgress(task)}%` }}/></div><small>{getTaskProgress(task)}%</small></div><div className="task-actions">{canManageTask(task) ? <><button type="button" onClick={() => startEdit(task)} aria-label={`แก้ไข ${task.title}`}>แก้ไข</button><button type="button" onClick={() => deleteTask(task)} aria-label={`ลบ ${task.title}`}>ลบ</button></> : <button type="button" onClick={() => navigateTask(task.id, false)}>ดูงาน</button>}</div></div>) : <p className="empty-tasks">ไม่พบงานที่ตรงกับการค้นหา ลองเปลี่ยนคำค้นหาหรือตัวกรองนะ</p>}</div><div className="task-footer">ทำเสร็จแล้ว {completed} จาก {tasks.length} งาน ✦</div></section>}
 
         {(activeNav === 'งานของฉัน' || activeNav === 'งานกลุ่ม') && (selectedTask || (showForm && editingId === null)) && (
           <TaskDetailPanel
             authSession={authSession}
             task={selectedTask}
+            canEditTask={selectedTask ? canManageTask(selectedTask) : true}
             showForm={showForm}
             title={title}
             setTitle={setTitle}
@@ -1280,6 +1439,8 @@ function App() {
             description={description}
             setDescription={setDescription}
             groupRooms={groupRooms}
+            memberDisplayNames={memberDisplayNames}
+            profileName={profileName}
             taskRoomId={taskRoomId}
             setTaskRoomId={setTaskRoomId}
             assignedTo={assignedTo}
@@ -1292,8 +1453,12 @@ function App() {
             deleteTask={deleteTask}
             toggleTask={toggleTask}
             onBack={() => {
-              resetForm()
-              setSelectedTaskId(null)
+              // Keep the draft in component state/sessionStorage; go back in the SPA history when possible.
+              if (window.history.state?.aevoraNav) window.history.back()
+              else {
+                setShowForm(false)
+                setSelectedTaskId(null)
+              }
             }}
           />
         )}
@@ -1302,10 +1467,9 @@ function App() {
         <CalendarPanel
           tasks={tasks}
           onOpenTask={(taskId) => {
-            setSelectedTaskId(taskId)
-            setShowForm(false)
+            navigateTask(taskId, false)
             setEditingId(null)
-            setActiveNav('งานของฉัน')
+            navigateTo('งานของฉัน')
           }}
           onAddTask={(date) => {
             setDue(date)
@@ -1314,9 +1478,8 @@ function App() {
             setDescription('')
             setType('งานเดี่ยว')
             setEditingId(null)
-            setSelectedTaskId(null)
-            setShowForm(true)
-            setActiveNav('งานของฉัน')
+            navigateTo('งานของฉัน')
+            navigateTaskForm(true, null)
           }}
         />
       )}
@@ -1378,6 +1541,7 @@ function TaskPanel(props: TaskPanelProps) {
 type TaskDetailPanelProps = {
   authSession: Session | null
   task: Task | null
+  canEditTask: boolean
   showForm: boolean
   title: string
   setTitle: (value: string) => void
@@ -1390,6 +1554,8 @@ type TaskDetailPanelProps = {
   description: string
   setDescription: (value: string) => void
   groupRooms: GroupRoom[]
+  memberDisplayNames: Record<string, string>
+  profileName: string
   taskRoomId: number | ''
   setTaskRoomId: (value: number | '') => void
   assignedTo: string
@@ -1405,7 +1571,7 @@ type TaskDetailPanelProps = {
 }
 
 function TaskDetailPanel(props: TaskDetailPanelProps) {
-  const { authSession, task, showForm, title, setTitle, subject, setSubject, type, setType, due, setDue, description, setDescription, groupRooms, taskRoomId, setTaskRoomId, assignedTo, setAssignedTo, updateSubtasks, updateTaskExtras, saveTask, startEdit, deleteTask, toggleTask, onBack } = props
+  const { authSession, task, canEditTask, showForm, title, setTitle, subject, setSubject, type, setType, due, setDue, description, setDescription, groupRooms, memberDisplayNames, profileName, taskRoomId, setTaskRoomId, assignedTo, setAssignedTo, updateSubtasks, updateTaskExtras, saveTask, startEdit, deleteTask, toggleTask, onBack } = props
   const isCreating = task === null
   const progress = task ? getTaskProgress(task) : 0
   const [newSubtask, setNewSubtask] = useState('')
@@ -1421,7 +1587,9 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
   return (
     <section className="panel task-detail-page">
       <button type="button" className="task-back-button" onClick={onBack}>← กลับไปหน้ารายการงาน</button>
-      {showForm ? (
+      {showForm && !canEditTask ? (
+        <p className="task-inline-message" role="alert">คุณไม่มีสิทธิ์แก้ไขงานนี้ เฉพาะผู้รับผิดชอบและโฮสต์ของห้องเท่านั้น</p>
+      ) : showForm ? (
         <>
           <div className="task-detail-heading">
             <span className="eyebrow">{isCreating ? 'NEW TASK' : 'EDIT TASK'}</span>
@@ -1434,7 +1602,7 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
             <label>ประเภทงาน<select value={type} onChange={event => setType(event.target.value as 'งานเดี่ยว' | 'งานกลุ่ม')}><option value="งานเดี่ยว">งานเดี่ยว</option><option value="งานกลุ่ม">งานกลุ่ม</option></select></label>
             {type === 'งานกลุ่ม' && <div className="task-assignment-fields">
               <label>ห้องงานกลุ่ม<select value={taskRoomId} onChange={event => { const value = event.target.value; const roomId = value ? Number(value) : ''; setTaskRoomId(roomId); const room = groupRooms.find(item => item.id === roomId); if (room && assignedTo && !room.members.some(member => member.userId === assignedTo)) setAssignedTo('') }}><option value="">ยังไม่เลือกห้อง</option>{groupRooms.map(room => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
-              <label>ผู้รับผิดชอบ<select value={assignedTo} onChange={event => setAssignedTo(event.target.value)} disabled={taskRoomId === ''}><option value="">ยังไม่มอบหมาย</option>{groupRooms.find(room => room.id === taskRoomId)?.members.map(member => <option key={member.userId} value={member.userId}>{member.userId === authSession?.user?.id ? 'ฉัน' : `${member.userId.slice(0, 8)}…`}</option>)}</select></label>
+              <label>ผู้รับผิดชอบ<select value={assignedTo} onChange={event => setAssignedTo(event.target.value)} disabled={taskRoomId === ''}><option value="">ยังไม่มอบหมาย</option>{groupRooms.find(room => room.id === taskRoomId)?.members.map(member => <option key={member.userId} value={member.userId}>{memberDisplayNames[member.userId] || (member.userId === authSession?.user?.id ? 'ฉัน' : `สมาชิก ${member.userId.slice(0, 6)}`)}</option>)}</select></label>
               {groupRooms.length === 0 && <p className="task-assignment-hint">ยังไม่มีห้องงานกลุ่ม ไปที่เมนู “งานกลุ่ม” เพื่อสร้างห้องก่อนนะ</p>}
             </div>}
             <label>วันกำหนดส่ง<input type="date" value={due} onChange={event => setDue(event.target.value)} /></label>
@@ -1515,7 +1683,7 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
                   if (!blob) { setFileMessage('ไม่พบข้อมูลไฟล์นี้ในเบราว์เซอร์'); return }
                   const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = file.name; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
                 } catch (error) { console.error('ดาวน์โหลดไฟล์ไม่สำเร็จ:', error); setFileMessage('ดาวน์โหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่') }
-              }}>{file.name}</button><small>{file.size >= 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : `${(file.size / 1024).toFixed(0)} KB`}</small><button type="button" onClick={async () => {
+              }}>{file.name}</button><small>{file.size >= 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : `${(file.size / 1024).toFixed(0)} KB`}</small>{canEditTask && <button type="button" onClick={async () => {
                 try {
                   if (file.storagePath) {
                     if (!supabase) throw new Error('ยังไม่ได้เชื่อมต่อ Supabase')
@@ -1530,7 +1698,7 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
                   console.error('ลบไฟล์ไม่สำเร็จ:', error)
                   setFileMessage('ลบไฟล์ไม่สำเร็จ ไฟล์ยังคงอยู่ กรุณาลองใหม่')
                 }
-              }}>ลบ</button></li>)}</ul> : <p className="task-extra-empty">ยังไม่มีไฟล์แนบในงานนี้</p>}
+              }}>ลบ</button>}</li>)}</ul> : <p className="task-extra-empty">ยังไม่มีไฟล์แนบในงานนี้</p>}
             </section>}
             {!task && <p className="task-edit-attachment-note">สร้างงานและบันทึกก่อน แล้วจึงเพิ่มไฟล์แนบได้ค่ะ</p>}
             <div className="task-form-actions">
@@ -1551,23 +1719,23 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
             <div className="task-detail-card"><span>วันกำหนดส่ง</span><strong>◷ {dueLabel}</strong></div>
             <div className="task-detail-card"><span>ประเภทงาน</span><strong>{task.type}</strong></div>
             {task.type === 'งานกลุ่ม' && <div className="task-detail-card"><span>ห้องงานกลุ่ม</span><strong>{groupRooms.find(room => room.id === task.groupRoomId)?.name || 'ยังไม่เลือกห้อง'}</strong></div>}
-            {task.type === 'งานกลุ่ม' && <div className="task-detail-card"><span>ผู้รับผิดชอบ</span><strong>{task.assignedTo || 'ยังไม่มอบหมาย'}</strong></div>}
+            {task.type === 'งานกลุ่ม' && <div className="task-detail-card"><span>ผู้รับผิดชอบ</span><strong>{task.assignedTo ? (memberDisplayNames[task.assignedTo] || (task.assignedTo === authSession?.user?.id ? profileName : task.assignedTo)) : 'ยังไม่มอบหมาย'}</strong></div>}
             <div className="task-detail-card"><span>สถานะ</span><strong className={task.done ? 'detail-status-done' : 'detail-status-pending'}>{task.done ? '✓ เสร็จแล้ว' : '◷ กำลังทำ'}</strong></div>
             <div className="task-detail-card"><span>ความคืบหน้า</span><strong>{progress}%</strong><div className="task-detail-progress"><div style={{ width: `${progress}%` }} /></div></div>
           </div>
           <div className="subtask-panel">
             <div className="subtask-heading"><div><h3>งานย่อยของงานนี้</h3><p>{task.subtasks?.filter(item => item.done).length || 0} / {task.subtasks?.length || 0} รายการเสร็จแล้ว</p></div><span>{task.subtasks?.length ? Math.round(task.subtasks.filter(item => item.done).length / task.subtasks.length * 100) : 0}%</span></div>
-            <form className="subtask-add-form" onSubmit={event => { event.preventDefault(); const value = newSubtask.trim(); if (!value) return; updateSubtasks(task.id, [...(task.subtasks || []), { id: Date.now(), title: value, done: false }]); setNewSubtask('') }}>
+            {canEditTask && <form className="subtask-add-form" onSubmit={event => { event.preventDefault(); const value = newSubtask.trim(); if (!value) return; updateSubtasks(task.id, [...(task.subtasks || []), { id: Date.now(), title: value, done: false }]); setNewSubtask('') }}>
               <input value={newSubtask} onChange={event => setNewSubtask(event.target.value)} placeholder="เพิ่มงานย่อย เช่น ค้นหาข้อมูล" aria-label="ชื่องานย่อย" maxLength={120} />
               <button type="submit">+ เพิ่ม</button>
-            </form>
-            {task.subtasks?.length ? <div className="subtask-list">{task.subtasks.map(item => <div className={`subtask-row ${item.done ? 'subtask-done' : ''}`} key={item.id}><label><input type="checkbox" checked={item.done} onChange={event => updateSubtasks(task.id, (task.subtasks || []).map(sub => sub.id === item.id ? { ...sub, done: event.target.checked } : sub))} /><span>{item.title}</span></label><button type="button" aria-label={`ลบงานย่อย ${item.title}`} onClick={() => updateSubtasks(task.id, (task.subtasks || []).filter(sub => sub.id !== item.id))}>ลบ</button></div>)}</div> : <p className="subtask-empty">ยังไม่มีงานย่อย ลองแบ่งงานนี้เป็นขั้นตอนเล็ก ๆ ดูนะ</p>}
+            </form>}
+            {task.subtasks?.length ? <div className="subtask-list">{task.subtasks.map(item => <div className={`subtask-row ${item.done ? 'subtask-done' : ''}`} key={item.id}><label><input type="checkbox" checked={item.done} disabled={!canEditTask} onChange={event => updateSubtasks(task.id, (task.subtasks || []).map(sub => sub.id === item.id ? { ...sub, done: event.target.checked } : sub))} /><span>{item.title}</span></label> {canEditTask && <button type="button" aria-label={`ลบงานย่อย ${item.title}`} onClick={() => updateSubtasks(task.id, (task.subtasks || []).filter(sub => sub.id !== item.id))}>ลบ</button>}</div>)}</div> : <p className="subtask-empty">ยังไม่มีงานย่อย ลองแบ่งงานนี้เป็นขั้นตอนเล็ก ๆ ดูนะ</p>}
           </div>
           <div className="task-extra-grid">
             <section className="task-extra-card">
               <div className="task-extra-heading"><h3>ไฟล์แนบ</h3><span>{task.attachments?.length || 0}</span></div>
               <p className="muted task-extra-help">แนบไฟล์ได้สูงสุด 25 MB ต่อไฟล์ ไฟล์จะเก็บในพื้นที่จัดเก็บของเบราว์เซอร์นี้</p>
-              <label className="task-file-picker">+ เลือกไฟล์<input type="file" onChange={async event => {
+              {canEditTask && <label className="task-file-picker">+ เลือกไฟล์<input type="file" onChange={async event => {
                 const input = event.currentTarget
                 const file = input.files?.[0]
                 if (!file || !task) return
@@ -1621,7 +1789,7 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
                   )
                 }
                 input.value = ''
-              }} /></label>
+              }} /></label>}
               {fileMessage && <p className="task-inline-message" role="status">{fileMessage}</p>}
               {task.attachments?.length ? <ul className="task-attachment-list">{task.attachments.map(file => <li key={file.id}><button type="button" className="task-attachment-download" onClick={async () => {
                 try {
@@ -1659,29 +1827,29 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
             </section>
             <section className="task-extra-card">
               <div className="task-extra-heading"><h3>ความคิดเห็น</h3><span>{task.comments?.length || 0}</span></div>
-              <form className="task-comment-form" onSubmit={event => { event.preventDefault(); const value = commentText.trim(); if (!value) return; const comment: TaskComment = { id: Date.now(), author: commentAuthor.trim() || 'ฉัน', text: value, createdAt: new Date().toISOString(), privateNote }; updateTaskExtras(task.id, { comments: [...(task.comments || []), comment], activity: [...(task.activity || []), { id: Date.now() + 1, text: privateNote ? 'เพิ่มบันทึกส่วนตัว' : 'เพิ่มความคิดเห็น', createdAt: new Date().toISOString() }] }); setCommentText(''); setPrivateNote(false) }}>
+              {canEditTask && <form className="task-comment-form" onSubmit={event => { event.preventDefault(); const value = commentText.trim(); if (!value) return; const comment: TaskComment = { id: Date.now(), author: commentAuthor.trim() || 'ฉัน', text: value, createdAt: new Date().toISOString(), privateNote }; updateTaskExtras(task.id, { comments: [...(task.comments || []), comment], activity: [...(task.activity || []), { id: Date.now() + 1, text: privateNote ? 'เพิ่มบันทึกส่วนตัว' : 'เพิ่มความคิดเห็น', createdAt: new Date().toISOString() }] }); setCommentText(''); setPrivateNote(false) }}>
                 <input value={commentAuthor} onChange={event => setCommentAuthor(event.target.value)} aria-label="ชื่อผู้แสดงความคิดเห็น" placeholder="ชื่อของคุณ" maxLength={40} />
                 <textarea value={commentText} onChange={event => setCommentText(event.target.value)} placeholder="เขียนความคิดเห็นหรือบันทึก..." rows={3} maxLength={1000} required />
                 <label className="task-private-toggle"><input type="checkbox" checked={privateNote} onChange={event => setPrivateNote(event.target.checked)} /> บันทึกส่วนตัว (แสดงเฉพาะในเครื่องนี้)</label>
                 <button type="submit">เพิ่มความคิดเห็น</button>
-              </form>
-              {task.comments?.length ? <div className="task-comment-list">{[...task.comments].reverse().map(comment => <article key={comment.id} className="task-comment"><div><strong>{comment.author}</strong>{comment.privateNote && <span className="task-private-badge">ส่วนตัว</span>}<small>{new Date(comment.createdAt).toLocaleString('th-TH')}</small></div><p>{comment.text}</p><button type="button" onClick={() => updateTaskExtras(task.id, { comments: (task.comments || []).filter(item => item.id !== comment.id), activity: [...(task.activity || []), { id: Date.now(), text: 'ลบความคิดเห็น', createdAt: new Date().toISOString() }] })}>ลบ</button></article>)}</div> : <p className="task-extra-empty">ยังไม่มีความคิดเห็น</p>}
+              </form>}
+              {task.comments?.length ? <div className="task-comment-list">{[...task.comments].reverse().map(comment => <article key={comment.id} className="task-comment"><div><strong>{comment.author}</strong>{comment.privateNote && <span className="task-private-badge">ส่วนตัว</span>}<small>{new Date(comment.createdAt).toLocaleString('th-TH')}</small></div><p>{comment.text}</p>{canEditTask && <button type="button" onClick={() => updateTaskExtras(task.id, { comments: (task.comments || []).filter(item => item.id !== comment.id), activity: [...(task.activity || []), { id: Date.now(), text: 'ลบความคิดเห็น', createdAt: new Date().toISOString() }] })}>ลบ</button>}</article>)}</div> : <p className="task-extra-empty">ยังไม่มีความคิดเห็น</p>}
             </section>
             <section className="task-extra-card">
               <div className="task-extra-heading"><h3>ขอความช่วยเหลือ</h3><span>{(task.helpRequests || []).filter(item => item.status === 'เปิดอยู่').length} รายการเปิดอยู่</span></div>
-              <form className="task-help-form" onSubmit={event => { event.preventDefault(); const value = helpText.trim(); if (!value) return; const request: HelpRequest = { id: Date.now(), text: value, status: 'เปิดอยู่', createdAt: new Date().toISOString() }; updateTaskExtras(task.id, { helpRequests: [...(task.helpRequests || []), request], activity: [...(task.activity || []), { id: Date.now() + 1, text: 'ส่งคำขอความช่วยเหลือ', createdAt: new Date().toISOString() }] }); setHelpText('') }}><textarea value={helpText} onChange={event => setHelpText(event.target.value)} placeholder="ติดปัญหาตรงไหน ต้องการให้ช่วยอะไร..." rows={3} maxLength={500} required /><button type="submit">ส่งคำขอ</button></form>
-              {task.helpRequests?.length ? <div className="task-help-list">{[...task.helpRequests].reverse().map(request => <article key={request.id}><div><span className={request.status === 'เปิดอยู่' ? 'help-open' : 'help-resolved'}>{request.status}</span><small>{new Date(request.createdAt).toLocaleString('th-TH')}</small></div><p>{request.text}</p>{request.status === 'เปิดอยู่' && <button type="button" onClick={() => updateTaskExtras(task.id, { helpRequests: (task.helpRequests || []).map(item => item.id === request.id ? { ...item, status: 'แก้ไขแล้ว' } : item), activity: [...(task.activity || []), { id: Date.now(), text: 'ทำเครื่องหมายคำขอช่วยเหลือว่าแก้ไขแล้ว', createdAt: new Date().toISOString() }] })}>ทำเครื่องหมายว่าแก้ไขแล้ว</button>}</article>)}</div> : <p className="task-extra-empty">ยังไม่มีคำขอความช่วยเหลือ</p>}
+              {canEditTask && <form className="task-help-form" onSubmit={event => { event.preventDefault(); const value = helpText.trim(); if (!value) return; const request: HelpRequest = { id: Date.now(), text: value, status: 'เปิดอยู่', createdAt: new Date().toISOString() }; updateTaskExtras(task.id, { helpRequests: [...(task.helpRequests || []), request], activity: [...(task.activity || []), { id: Date.now() + 1, text: 'ส่งคำขอความช่วยเหลือ', createdAt: new Date().toISOString() }] }); setHelpText('') }}><textarea value={helpText} onChange={event => setHelpText(event.target.value)} placeholder="ติดปัญหาตรงไหน ต้องการให้ช่วยอะไร..." rows={3} maxLength={500} required /><button type="submit">ส่งคำขอ</button></form>}
+              {task.helpRequests?.length ? <div className="task-help-list">{[...task.helpRequests].reverse().map(request => <article key={request.id}><div><span className={request.status === 'เปิดอยู่' ? 'help-open' : 'help-resolved'}>{request.status}</span><small>{new Date(request.createdAt).toLocaleString('th-TH')}</small></div><p>{request.text}</p>{canEditTask && request.status === 'เปิดอยู่' && <button type="button" onClick={() => updateTaskExtras(task.id, { helpRequests: (task.helpRequests || []).map(item => item.id === request.id ? { ...item, status: 'แก้ไขแล้ว' } : item), activity: [...(task.activity || []), { id: Date.now(), text: 'ทำเครื่องหมายคำขอช่วยเหลือว่าแก้ไขแล้ว', createdAt: new Date().toISOString() }] })}>ทำเครื่องหมายว่าแก้ไขแล้ว</button>}</article>)}</div> : <p className="task-extra-empty">ยังไม่มีคำขอความช่วยเหลือ</p>}
             </section>
             <section className="task-extra-card">
               <div className="task-extra-heading"><h3>ประวัติการทำงาน</h3><span>{task.activity?.length || 0} รายการ</span></div>
               {task.activity?.length ? <ul className="task-activity-list">{[...task.activity].reverse().slice(0, 12).map(entry => <li key={entry.id}><span>{entry.text}</span><small>{new Date(entry.createdAt).toLocaleString('th-TH')}</small></li>)}</ul> : <p className="task-extra-empty">กิจกรรมที่เกิดขึ้นในส่วนไฟล์ ความคิดเห็น และคำขอช่วยเหลือจะแสดงตรงนี้</p>}
             </section>
           </div>
-          <div className="task-detail-actions">
+          {canEditTask && <div className="task-detail-actions">
             <button type="button" className="detail-primary-button" onClick={() => startEdit(task)}>✎ แก้ไขรายละเอียด</button>
             <button type="button" className="detail-success-button" onClick={() => toggleTask(task.id)}>{task.done ? '↶ ทำต่อ' : '✓ ทำเครื่องหมายว่าเสร็จ'}</button>
             <button type="button" className="detail-delete-button" onClick={() => deleteTask(task)}>ลบงาน</button>
-          </div>
+          </div>}
         </>
       ) : null}
     </section>

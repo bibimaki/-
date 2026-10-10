@@ -477,9 +477,12 @@ function App() {
     try {
       const { error } = await supabase.from('group_members').delete().eq('room_id', room.dbId).eq('user_id', authSession.user.id)
       if (error) throw error
+      // Remove this room's tasks from this user's local view only. Shared rows belong
+      // to the room and must remain available to the other members.
+      setTasks(current => current.filter(task => !(task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)))
       setGroupRooms(current => current.filter(item => item.dbId !== room.dbId))
       if (selectedWorkspaceRoomId === room.id) setSelectedWorkspaceRoomId(null)
-      setGroupRoomMessage(`ออกจากห้อง “${room.name}” แล้ว`)
+      setGroupRoomMessage(`ออกจากห้อง “${room.name}” แล้ว และนำงานของห้องนี้ออกจากรายการของคุณแล้ว`)
     } catch (error) {
       setGroupRoomMessage(error instanceof Error ? `ออกจากห้องไม่สำเร็จ: ${error.message}` : 'ออกจากห้องไม่สำเร็จ')
     } finally {
@@ -1615,10 +1618,16 @@ function App() {
                 if (!supabase) return
                 setGroupRoomBusy(true)
                 try {
-                  const { error } = await supabase.from('group_rooms').delete().eq('id', room.dbId).eq('owner_id', authSession.user.id)
-                  if (error) throw error
+                  // Delete child task rows first. Without this, orphaned group_tasks
+                  // can remain in Supabase and reappear after a refresh.
+                  const { error: taskDeleteError } = await supabase.from('group_tasks').delete().eq('room_id', room.dbId)
+                  if (taskDeleteError) throw new Error(`ลบงานในห้องไม่สำเร็จ: ${taskDeleteError.message}`)
+                  const { error: roomDeleteError } = await supabase.from('group_rooms').delete().eq('id', room.dbId).eq('owner_id', authSession.user.id)
+                  if (roomDeleteError) throw roomDeleteError
+                  setTasks(current => current.filter(task => !(task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)))
                   setGroupRooms(current => current.filter(item => item.dbId !== room.dbId))
-                  setGroupRoomMessage('ลบห้องแล้ว')
+                  if (selectedWorkspaceRoomId === room.id) setSelectedWorkspaceRoomId(null)
+                  setGroupRoomMessage('ลบห้องและงานทั้งหมดในห้องแล้ว')
                 } catch (error) { setGroupRoomMessage(error instanceof Error ? `ลบห้องไม่สำเร็จ: ${error.message}` : 'ลบห้องไม่สำเร็จ') }
                 finally { setGroupRoomBusy(false) }
               }}>ลบห้อง</button>}

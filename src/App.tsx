@@ -1097,6 +1097,9 @@ function App() {
 
   const filteredTasks = useMemo(() => tasks.filter(task => {
 
+    // หน้างานของฉันเป็นพื้นที่สำหรับงานเดี่ยวเท่านั้น งานกลุ่มจัดการในเมนูงานกลุ่ม
+    if (activeNav === 'งานของฉัน' && task.type !== 'งานเดี่ยว') return false
+
     const term = search.trim().toLocaleLowerCase()
 
     const matchesSearch = !term || `${task.title} ${task.subject}`.toLocaleLowerCase().includes(term)
@@ -1280,7 +1283,7 @@ function App() {
 
         <nav className="nav-list">
 
-          {navItems.map(item => <button type="button" className={`nav-item ${activeNav === item.key ? 'active' : ''}`} key={item.key} onClick={() => navigateTo(item.key)}><span className="nav-icon"><img src={item.icon} alt="" /></span><span>{item.label}</span></button>)}
+          {navItems.map(item => <button type="button" className={`nav-item ${activeNav === item.key ? 'active' : ''}`} key={item.key} onClick={() => { if (item.key === 'งานของฉัน') { setSelectedTaskId(null); setShowForm(false); setEditingId(null); setFilter('ทั้งหมด'); setSearch(''); } navigateTo(item.key) }}><span className="nav-icon"><img src={item.icon} alt="" /></span><span>{item.label}</span></button>)}
 
         </nav>
 
@@ -1511,7 +1514,7 @@ function App() {
 
         {activeNav === 'งานของฉัน' && !selectedTask && !showForm && <section className="panel tasks-panel task-manager"><div className="panel-heading"><div><h2>▣ งานของฉัน</h2><p className="muted">เพิ่ม แก้ไข ค้นหา และจัดการงานได้จากที่นี่</p></div><button className="text-button" onClick={() => { setSelectedTaskId(null); setEditingId(null); setTitle(''); setSubject(''); setDescription(''); setTaskRoomId(''); setAssignedTo(''); setType('งานเดี่ยว'); setDue(''); navigateTaskForm(true, null) }}>+ สร้างงานใหม่</button></div>
 
-          <input id="task-search" className="task-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาจากชื่องานหรือวิชา..." aria-label="ค้นหางาน"/><div className="task-filters filter-buttons">{(['ทั้งหมด', 'กำลังทำ', 'เสร็จแล้ว', 'งานเดี่ยว', 'งานกลุ่ม'] as Filter[]).map(item => <button key={item} className={filter === item ? 'filter-active' : ''} onClick={() => setFilter(item)}>{item}{item === 'ทั้งหมด' ? ` (${tasks.length})` : item === 'เสร็จแล้ว' ? ` (${completed})` : ''}</button>)}</div>
+          <input id="task-search" className="task-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาจากชื่องานหรือวิชา..." aria-label="ค้นหางาน"/><div className="task-filters filter-buttons">{(['ทั้งหมด', 'กำลังทำ', 'เสร็จแล้ว'] as Filter[]).map(item => <button key={item} className={filter === item ? 'filter-active' : ''} onClick={() => setFilter(item)}>{item}{item === 'ทั้งหมด' ? ` (${tasks.filter(task => task.type === 'งานเดี่ยว').length})` : item === 'เสร็จแล้ว' ? ` (${tasks.filter(task => task.type === 'งานเดี่ยว' && task.done).length})` : ''}</button>)}</div>
 
           <div className="task-list">{filteredTasks.length ? Array.from(filteredTasks.reduce((groups, task) => {
             const heading = task.subject?.trim() || (task.type === 'งานกลุ่ม' ? 'โปรเจกต์กลุ่มอื่น ๆ' : 'งานทั่วไป')
@@ -1521,7 +1524,7 @@ function App() {
           }, new Map<string, Task[]>()).entries()).map(([heading, headingTasks]) => <section className="task-project-group" key={heading} style={{ marginBottom: 18, padding: 16, border: '1px solid rgba(126, 100, 160, .18)', borderRadius: 18, background: 'rgba(255, 255, 255, .62)' }}>
             <button type="button" className="task-project-heading" aria-expanded={expandedProjects.includes(heading)} onClick={() => setExpandedProjects(current => current.includes(heading) ? current.filter(item => item !== heading) : [...current, heading])} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: expandedProjects.includes(heading) ? 10 : 0, padding: '0 0 10px', border: 0, borderBottom: expandedProjects.includes(heading) ? '1px solid rgba(126, 100, 160, .16)' : 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', color: 'inherit' }}><div><span style={{ display: 'block', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', opacity: .65 }}>โปรเจกต์</span><h3 style={{ margin: '3px 0 0', fontSize: 17 }}>{heading}</h3><small style={{ display: 'block', marginTop: 5, opacity: .72 }}>{headingTasks.filter(task => !task.done).length ? `มีงานที่ต้องทำ ${headingTasks.filter(task => !task.done).length} งาน` : 'งานทั้งหมดเสร็จแล้ว'} · {headingTasks.length} งานย่อย</small></div><span style={{ whiteSpace: 'nowrap', fontSize: 13, opacity: .8 }}>{expandedProjects.includes(heading) ? 'ซ่อนงานย่อย ↑' : 'ดูงานย่อย →'}</span></button>
             {expandedProjects.includes(heading) && <div className="task-project-items">{headingTasks.map(task => <div className={`task-row ${task.done ? 'task-done' : ''}`} key={task.id}><button className={`task-check ${task.done ? 'checked' : ''}`} onClick={() => toggleTask(task.id)} disabled={!canManageTask(task)} aria-label={task.done ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จแล้ว'} title={!canManageTask(task) ? 'แก้ไขได้เฉพาะผู้รับผิดชอบหรือโฮสต์' : undefined}>{task.done ? '✓' : ''}</button><div className="task-info"><button type="button" className="task-title-link" onClick={() => navigateTask(task.id, false)}>{task.title}</button>{(task.groupRoomId || task.assignedTo) && <small className="task-assignment-meta">{task.groupRoomId ? groupRooms.find(room => room.id === task.groupRoomId)?.name : ''}{task.groupRoomId && task.assignedTo ? ' · ' : ''}{task.assignedTo ? `ผู้รับผิดชอบ: ${memberDisplayNames[task.assignedTo] || (task.assignedTo === authSession?.user?.id ? profileName : task.assignedTo)}` : ''}</small>}</div><span className={`task-type ${task.type === 'งานกลุ่ม' ? 'group-type' : ''}`}>{task.type}</span><span className="task-due">◷ {task.due}</span><div className="task-progress"><div className="mini-track"><div style={{ width: `${getTaskProgress(task)}%` }}/></div><small>{getTaskProgress(task)}%</small></div><div className="task-actions">{canManageTask(task) ? <><button type="button" onClick={() => startEdit(task)} aria-label={`แก้ไข ${task.title}`}>แก้ไข</button><button type="button" onClick={() => deleteTask(task)} aria-label={`ลบ ${task.title}`}>ลบ</button></> : <button type="button" onClick={() => navigateTask(task.id, false)}>ดูงาน</button>}</div></div>)}</div>}
-          </section>) : <p className="empty-tasks">ไม่พบงานที่ตรงกับการค้นหา ลองเปลี่ยนคำค้นหาหรือตัวกรองนะ</p>}</div><div className="task-footer">ทำเสร็จแล้ว {completed} จาก {tasks.length} งาน ✦</div></section>}
+          </section>) : <p className="empty-tasks">ไม่พบงานที่ตรงกับการค้นหา ลองเปลี่ยนคำค้นหาหรือตัวกรองนะ</p>}</div><div className="task-footer">งานเดี่ยวเสร็จแล้ว {tasks.filter(task => task.type === 'งานเดี่ยว' && task.done).length} จาก {tasks.filter(task => task.type === 'งานเดี่ยว').length} งาน ✦</div></section>}
 
         {activeNav === 'งานของฉัน' && (selectedTask || (showForm && editingId === null)) && (
           <TaskDetailPanel
@@ -1634,7 +1637,7 @@ function TaskPanel(props: TaskPanelProps) {
           </div>
         )) : <p className="empty-tasks">ยังไม่มีงานในรายการนี้</p>}
       </div>
-      <div className="task-footer">ทำเสร็จแล้ว {completed} จาก {tasks.length} งาน ✦</div>
+      <div className="task-footer">งานเดี่ยวเสร็จแล้ว {tasks.filter(task => task.type === 'งานเดี่ยว' && task.done).length} จาก {tasks.filter(task => task.type === 'งานเดี่ยว').length} งาน ✦</div>
     </div>
   )
 }

@@ -37,7 +37,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text: text.slice(0, 3500), disable_web_page_preview: true }),
     })
-    if (!response.ok) throw new Error(`Telegram API returned ${response.status}`)
+    const result = await response.json().catch(() => null) as { ok?: boolean; description?: string } | null
+    if (!response.ok || !result?.ok) throw new Error(result?.description || `Telegram API returned ${response.status}`)
+  }
+
+  // Personal events (for example, creating a solo task) only go to the
+  // currently authenticated user's own opted-in Telegram chat.
+  if (action === 'personal_notify') {
+    const message = String(body.message || '').trim()
+    if (!message) return json(res, 400, { error: 'ไม่มีข้อความแจ้งเตือน' })
+    const { data: subscription, error } = await db.from('telegram_subscriptions')
+      .select('chat_id,enabled').eq('user_id', userId).maybeSingle()
+    if (error) return json(res, 500, { error: `อ่านการสมัคร Telegram ไม่สำเร็จ: ${error.message}` })
+    if (!subscription?.enabled || !subscription.chat_id) return json(res, 200, { ok: true, sent: 0, skipped: true, reason: 'not_subscribed' })
+    try {
+      await sendMessage(subscription.chat_id, `🌸 Aevora
+${message}`)
+      return json(res, 200, { ok: true, sent: 1 })
+    } catch (error) {
+      return json(res, 502, { error: error instanceof Error ? error.message : 'ส่ง Telegram ไม่สำเร็จ' })
+    }
   }
 
   if (action === 'test') {

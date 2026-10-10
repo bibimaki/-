@@ -2210,6 +2210,9 @@ main, .main-content, .app-main, .content, .page-content, .workspace, .dashboard-
 .quest-grid,.achievement-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:18px; }
 .quest-card { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:12px; min-width:0; padding:16px; border:1px solid #ece3f4; border-radius:16px; background:linear-gradient(145deg,#fff,#fcf8ff); }
 .quest-icon,.achievement-icon { display:grid; place-items:center; width:42px; height:42px; border-radius:13px; background:#f1e9ff; font-size:21px; }
+.quest-icon { overflow:hidden; flex:0 0 42px; }
+.quest-icon img { display:block; width:100%; height:100%; object-fit:contain; }
+.quest-icon.quest-is-locked img { filter:grayscale(.65) saturate(.7); opacity:.8; }
 .quest-copy { min-width:0; }
 .quest-copy h3,.achievement-card h3 { margin:0 0 6px; color:#382a56; font-size:15px; overflow-wrap:anywhere; }
 .quest-copy p,.achievement-card p,.streak-summary p { margin:0 0 10px; color:#827493; font-size:12px; line-height:1.6; }
@@ -3889,85 +3892,119 @@ body {
 .task-section-title { display: flex; align-items: center; gap: 9px; }
 .task-section-title img { width: 54px; height: 54px; object-fit: contain; flex: 0 0 auto; }
 @media (max-width: 700px) { .pet-activity-icon { width: 62px; height: 62px; } .task-type-art { width: 23px; height: 23px; } .task-section-title img { width: 42px; height: 42px; } .group-room-icon { width: 44px; height: 44px; } }
-/* เพิ่มส่วนนี้ไว้ท้าย src/App.css เพื่อจัดไอคอนลอยและต้นไม้ตกแต่ง */
 
-/* ไอคอน EXP ในแถบเลเวล */
-.exp-orb-image {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: visible;
-  background: transparent;
+/* Quest status artwork sizing and state presentation */
+.gamification-page .quest-icon { width: 46px; height: 46px; padding: 2px; overflow: hidden; }
+.gamification-page .quest-icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.gamification-page .quest-icon.quest-is-locked img { filter: grayscale(.7); opacity: .78; }
+.gamification-page .quest-status:not(.is-done) { line-height: 1.4; }
+
+
+/* Aevora clarity pass: consistent panels, stronger borders, calmer hierarchy */
+:root {
+  --ui-ink: #302342;
+  --ui-muted: #766984;
+  --ui-border: #ded4e9;
+  --ui-border-strong: #c9b8dc;
+  --ui-surface: #ffffff;
+  --ui-surface-soft: #faf7fd;
+  --ui-accent: #7651a8;
 }
 
-.exp-orb-image img {
-  display: block;
-  width: 48px;
-  height: 48px;
-  object-fit: contain;
-  animation: aevora-icon-float 3s ease-in-out infinite;
-  filter: drop-shadow(0 4px 7px rgba(115, 65, 170, 0.22));
+.app-shell {
+  background: #f5f2f8;
+}
+.main-content {
+  padding: clamp(14px, 1.5vw, 24px);
+  color: var(--ui-ink);
+}
+.welcome-title-wrap { width: auto; }
+.welcome-title { color: #302342; letter-spacing: -.015em; }
+.welcome-tree { display: none !important; }
+.welcome p, .muted, .panel-heading p { color: var(--ui-muted); }
+
+/* Distinguish content areas across pages without changing the existing layout */
+.panel,
+.hero-card,
+.level-card,
+.daily-quote,
+.world-card,
+.task-detail-page,
+.task-extra-card,
+.task-detail-card,
+.subtask-panel,
+.quest-card,
+.achievement-card,
+.task-card,
+.group-room-card,
+.pet-card,
+.calendar-card,
+.settings-card {
+  border: 1px solid var(--ui-border) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 2px 8px rgba(48, 35, 66, .045) !important;
+}
+.panel {
+  background: var(--ui-surface) !important;
+  padding: clamp(14px, 1.25vw, 20px);
+}
+.panel-heading {
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ece5f2;
+  margin-bottom: 16px;
+}
+.panel-heading h2,
+.welcome h1,
+.task-manager .panel-heading h2,
+.aevora-calendar .panel-heading h2 {
+  color: var(--ui-ink);
+  font-weight: 750;
+}
+.panel-heading p { margin-top: 5px; line-height: 1.55; }
+
+/* Clear boundaries for lists, forms, subtasks and status blocks */
+.task-row,
+.task-item,
+.subtask-row,
+.group-review-queue-item,
+.quest-card,
+.achievement-card,
+.room-member,
+.room-task-item,
+.notification-item,
+.activity-item {
+  border-color: var(--ui-border) !important;
+}
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  border-color: var(--ui-border-strong) !important;
+  border-radius: 9px;
+  background-color: #fff !important;
+  color: var(--ui-ink);
+}
+input:focus, select:focus, textarea:focus {
+  border-color: #9475bd !important;
+  box-shadow: 0 0 0 3px rgba(148, 117, 189, .13);
+  outline: none;
+}
+button { transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease; }
+button:focus-visible, a:focus-visible {
+  outline: 3px solid rgba(118, 81, 168, .32);
+  outline-offset: 2px;
 }
 
-/* ไอคอนแทนอีโมจิในสถิติ */
-.stat-icon-image {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 42px;
-  line-height: 1;
-}
+/* Reduce playful visual noise while retaining meaningful navigation icons */
+.brand-stars { letter-spacing: 3px; opacity: .75; }
+.quote { border-color: var(--ui-border); background: #fff; }
+.level-pill { border-color: var(--ui-border); background: #fff; }
+.nav-item { border-radius: 10px; }
+.nav-item.active { box-shadow: inset 3px 0 0 #7651a8; }
+.pet-message { border: 1px solid var(--ui-border); }
+.app-footer { color: #8c8099; }
 
-.stat-icon-image img {
-  display: block;
-  width: 42px;
-  height: 42px;
-  object-fit: contain;
-  animation: aevora-icon-float 3.2s ease-in-out infinite;
-  filter: drop-shadow(0 4px 7px rgba(115, 65, 170, 0.2));
-}
-
-/* ต้นไม้จิ๋วด้านหลังหัวข้อทักทาย */
-.welcome-title-wrap {
-  position: relative;
-  isolation: isolate;
-  width: fit-content;
-  max-width: 100%;
-}
-
-.welcome-title {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-}
-
-.welcome-tree {
-  position: absolute;
-  z-index: 0;
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  font-size: 30px;
-  line-height: 1;
-  right: -25px;
-  top: -18px;
-  opacity: 0.92;
-  pointer-events: none;
-}
-
-@keyframes aevora-icon-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
-}
-
-@media (max-width: 600px) {
-  .exp-orb-image img { width: 40px; height: 40px; }
-  .stat-icon-image img { width: 34px; height: 34px; }
-  .welcome-tree { width: 30px; height: 30px; right: -18px; top: -12px; font-size: 24px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .exp-orb-image img,
-  .stat-icon-image img { animation: none; }
+@media (max-width: 760px) {
+  .main-content { padding: 12px; }
+  .panel { padding: 13px; }
+  .panel-heading { align-items: flex-start; }
 }

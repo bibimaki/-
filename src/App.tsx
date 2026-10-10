@@ -475,11 +475,14 @@ function App() {
     if (!window.confirm(`ต้องการออกจากห้อง “${room.name}” ใช่ไหม?`)) return
     setGroupRoomBusy(true)
     try {
+      // Remove membership first. Shared group tasks remain available to the other members,
+      // but must disappear from this user's task list immediately and after reload.
       const { error } = await supabase.from('group_members').delete().eq('room_id', room.dbId).eq('user_id', authSession.user.id)
       if (error) throw error
+      setTasks(current => current.filter(task => !(task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)))
       setGroupRooms(current => current.filter(item => item.dbId !== room.dbId))
       if (selectedWorkspaceRoomId === room.id) setSelectedWorkspaceRoomId(null)
-      setGroupRoomMessage(`ออกจากห้อง “${room.name}” แล้ว`)
+      setGroupRoomMessage(`ออกจากห้อง “${room.name}” แล้ว งานของห้องนี้ถูกนำออกจากรายการของคุณแล้ว`)
     } catch (error) {
       setGroupRoomMessage(error instanceof Error ? `ออกจากห้องไม่สำเร็จ: ${error.message}` : 'ออกจากห้องไม่สำเร็จ')
     } finally {
@@ -1101,18 +1104,6 @@ function App() {
     } catch (error) { console.warn('Telegram notification ยังไม่พร้อมใช้งาน:', error) }
   }
 
-  async function notifyTelegramPersonal(message: string) {
-    if (!authSession?.access_token) return
-    try {
-      const response = await fetch('/api/telegram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authSession.access_token}` },
-        body: JSON.stringify({ action: 'personal_notify', message }),
-      })
-      if (!response.ok) console.warn('ส่ง Telegram notification ส่วนตัวไม่สำเร็จ:', await response.text())
-    } catch (error) { console.warn('Telegram notification ส่วนตัวยังไม่พร้อมใช้งาน:', error) }
-  }
-
   async function saveTelegramOptIn() {
     if (!authSession?.access_token) { setTelegramMessage('กรุณาเข้าสู่ระบบก่อนเปิดใช้การแจ้งเตือน'); return }
     if (telegramOptIn && !telegramChatId.trim()) { setTelegramMessage('กรอก Telegram Chat ID ก่อนเปิดการแจ้งเตือน'); return }
@@ -1248,12 +1239,7 @@ function App() {
     } else {
       const newId = Date.now()
       setTasks(current => [...current, { id: newId, title: title.trim(), subject: subject.trim() || 'งานทั่วไป', type, due: dueText, dueDate: due || undefined, description: description.trim(), groupRoomId: type === 'งานกลุ่ม' && taskRoomId !== '' ? taskRoomId : undefined, assignedTo: type === 'งานกลุ่ม' ? (assignedTo.trim() || undefined) : undefined, createdBy: type === 'งานกลุ่ม' ? authSession?.user?.id : undefined, subtasks: [], progress: 0, done: false }])
-      if (type === 'งานกลุ่ม' && taskRoomId !== '') {
-        const room = groupRooms.find(item => item.id === taskRoomId)
-        if (room) void notifyTelegram(room.dbId, 'tasks_assigned', `มีการสร้าง/มอบหมายงาน “${title.trim()}” ในห้อง “${room.name}”`)
-      } else if (type === 'งานเดี่ยว') {
-        void notifyTelegramPersonal(`สร้างงานเดี่ยว “${title.trim()}” สำเร็จ${due ? ` · กำหนดส่ง ${dueText}` : ''}`)
-      }
+      if (type === 'งานกลุ่ม' && taskRoomId !== '') { const room = groupRooms.find(item => item.id === taskRoomId); if (room) void notifyTelegram(room.dbId, 'tasks_assigned', `มีการมอบหมายงาน “${title.trim()}” ในห้อง “${room.name}”`) }
       setSelectedTaskId(newId)
     }
 
@@ -1628,17 +1614,28 @@ function App() {
               {room.ownerId !== authSession?.user?.id && <button type="button" className="group-room-delete" disabled={groupRoomBusy} onClick={() => void leaveGroupRoom(room)}>ออกจากกลุ่ม</button>}
               <div className="group-room-members"><strong>สมาชิกที่เข้าร่วมจริง</strong><div>{room.members.map(member => <span className="group-member-chip" key={`${room.dbId}-${member.userId}`}>👤 {memberDisplayNames[member.userId] || (member.userId === authSession?.user?.id ? profileName : `สมาชิก ${member.userId.slice(0, 6)}`)} {member.role === 'owner' ? '(เจ้าของห้อง)' : ''}</span>)}</div></div>
               {room.ownerId === authSession?.user?.id && <button type="button" className="group-room-delete" onClick={async () => {
-                if (!window.confirm(`ต้องการลบห้อง “${room.name}” ใช่ไหม?`)) return
-                if (!supabase) return
+                if (!window.confirm(`ต้องการลบห้อง “${room.name}” ใช่ไหม? งานกลุ่มทั้งหมดในห้องนี้จะถูกลบสำหรับสมาชิกทุกคน และไม่สามารถกู้คืนได้`)) return
+                if (!supabase || !authSession?.user?.id) return
                 setGroupRoomBusy(true)
                 try {
-                  const { error } = await supabase.from('group_rooms').delete().eq('id', room.dbId).eq('owner_id', authSession.user.id)
-                  if (error) throw error
+                  // Delete child rows before the room so stale tasks cannot reappear.
+                  // Each step checks errors; if RLS denies a delete, do not claim success.
+                  const { error: tasksError } = await supabase.from('group_tasks').delete().eq('room_id', room.dbId)
+                  if (tasksError) throw tasksError
+                  const { error: membersError } = await supabase.from('group_members').delete().eq('room_id', room.dbId)
+                  if (membersError) throw membersError
+                  const { error: roomError } = await supabase.from('group_rooms').delete().eq('id', room.dbId).eq('owner_id', authSession.user.id)
+                  if (roomError) throw roomError
+                  setTasks(current => current.filter(task => !(task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)))
                   setGroupRooms(current => current.filter(item => item.dbId !== room.dbId))
-                  setGroupRoomMessage('ลบห้องแล้ว')
-                } catch (error) { setGroupRoomMessage(error instanceof Error ? `ลบห้องไม่สำเร็จ: ${error.message}` : 'ลบห้องไม่สำเร็จ') }
-                finally { setGroupRoomBusy(false) }
-              }}>ลบห้อง</button>}
+                  if (selectedWorkspaceRoomId === room.id) setSelectedWorkspaceRoomId(null)
+                  setGroupRoomMessage(`ลบห้อง “${room.name}” และงานทั้งหมดในห้องแล้ว`)
+                } catch (error) {
+                  const detail = error && typeof error === 'object' && 'message' in error ? String((error as { message?: unknown }).message || '') : String(error)
+                  console.error('ลบห้องและงานกลุ่มไม่สำเร็จ:', error)
+                  setGroupRoomMessage(`ลบห้องไม่สำเร็จ: ${detail || 'ตรวจสอบสิทธิ์ RLS ใน Supabase'}`)
+                } finally { setGroupRoomBusy(false) }
+              }} disabled={groupRoomBusy}>ลบห้อง</button>}
             </article>
           })}</div>}
         </section>}

@@ -3877,3 +3877,97 @@ body {
 .pet-name-field { display: grid; gap: 7px; margin: 12px 0; color: #5d477c; font-weight: 700; }
 .pet-name-field input { width: 100%; box-sizing: border-box; border: 1px solid #d9c8ef; border-radius: 12px; padding: 11px 13px; background: #fffaff; color: #392650; font: inherit; }
 .pet-name-field small { color: #8b79a2; font-size: .82rem; font-weight: 500; }
+
+
+/* User-supplied decorative artwork for pet activities and task types. Sidebar navigation icons remain unchanged. */
+.pet-activity-icon { width: 76px; height: 76px; border-radius: 18px; overflow: visible; background: transparent; }
+.pet-activity-icon img { display: block; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 3px 5px rgba(119, 75, 153, .12)); }
+.task-type { display: inline-flex; align-items: center; gap: 5px; }
+.task-type-art { width: 28px; height: 28px; object-fit: contain; flex: 0 0 auto; vertical-align: middle; }
+.group-room-icon { width: 54px; height: 54px; background: transparent; overflow: visible; }
+.group-room-icon img { width: 100%; height: 100%; object-fit: contain; }
+.task-section-title { display: flex; align-items: center; gap: 9px; }
+.task-section-title img { width: 54px; height: 54px; object-fit: contain; flex: 0 0 auto; }
+@media (max-width: 700px) { .pet-activity-icon { width: 62px; height: 62px; } .task-type-art { width: 23px; height: 23px; } .task-section-title img { width: 42px; height: 42px; } .group-room-icon { width: 44px; height: 44px; } }
+/* เพิ่มส่วนนี้ไว้ท้าย src/App.css เพื่อจัดไอคอนลอยและต้นไม้ตกแต่ง */
+
+/* ไอคอน EXP ในแถบเลเวล */
+.exp-orb-image {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  background: transparent;
+}
+
+.exp-orb-image img {
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  animation: aevora-icon-float 3s ease-in-out infinite;
+  filter: drop-shadow(0 4px 7px rgba(115, 65, 170, 0.22));
+}
+
+/* ไอคอนแทนอีโมจิในสถิติ */
+.stat-icon-image {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  line-height: 1;
+}
+
+.stat-icon-image img {
+  display: block;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  animation: aevora-icon-float 3.2s ease-in-out infinite;
+  filter: drop-shadow(0 4px 7px rgba(115, 65, 170, 0.2));
+}
+
+/* ต้นไม้จิ๋วด้านหลังหัวข้อทักทาย */
+.welcome-title-wrap {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.welcome-title {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+}
+
+.welcome-tree {
+  position: absolute;
+  z-index: 0;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  line-height: 1;
+  right: -25px;
+  top: -18px;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+@keyframes aevora-icon-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@media (max-width: 600px) {
+  .exp-orb-image img { width: 40px; height: 40px; }
+  .stat-icon-image img { width: 34px; height: 34px; }
+  .welcome-tree { width: 30px; height: 30px; right: -18px; top: -12px; font-size: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exp-orb-image img,
+  .stat-icon-image img { animation: none; }
+}

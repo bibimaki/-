@@ -475,12 +475,12 @@ function App() {
     if (!window.confirm(`ต้องการออกจากห้อง “${room.name}” ใช่ไหม?`)) return
     setGroupRoomBusy(true)
     try {
-      // Remove membership first. Shared group tasks remain available to the other members,
-      // but must disappear from this user's task list immediately and after reload.
       const { error } = await supabase.from('group_members').delete().eq('room_id', room.dbId).eq('user_id', authSession.user.id)
       if (error) throw error
-      setTasks(current => current.filter(task => !(task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)))
       setGroupRooms(current => current.filter(item => item.dbId !== room.dbId))
+      // A member who leaves should no longer see that room's tasks; other members'
+      // shared rows remain untouched in Supabase for the remaining room members.
+      setTasks(current => current.filter(task => !(task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)))
       if (selectedWorkspaceRoomId === room.id) setSelectedWorkspaceRoomId(null)
       setGroupRoomMessage(`ออกจากห้อง “${room.name}” แล้ว งานของห้องนี้ถูกนำออกจากรายการของคุณแล้ว`)
     } catch (error) {
@@ -660,9 +660,11 @@ function App() {
             createdBy: String(row.created_by || raw.createdBy || ''),
           }
         })
-        const remoteIds = new Set(remoteTasks.map(task => task.id))
+        // Replace local copies for every room we just fetched, not only IDs still
+        // present remotely. Keeping absent IDs here resurrected deleted tasks.
+        const loadedLocalRoomIds = new Set(groupRooms.map(room => room.id))
         setTasks(current => [
-          ...current.filter(task => task.type !== 'งานกลุ่ม' || !remoteIds.has(task.id)),
+          ...current.filter(task => task.type !== 'งานกลุ่ม' || task.groupRoomId === undefined || !loadedLocalRoomIds.has(task.groupRoomId)),
           ...remoteTasks,
         ])
         setSharedTasksReady(true)
@@ -702,10 +704,12 @@ function App() {
           const raw = remote.task_data && typeof remote.task_data === 'object' ? remote.task_data as Record<string, unknown> : {}
           return { ...(raw as unknown as Task), id: Number(remote.task_key) || Number(raw.id) || Number(remote.id), type: 'งานกลุ่ม', groupRoomId: room?.id, createdBy: String(remote.created_by || raw.createdBy || '') }
         })
-        const remoteIds = new Set(remoteTasks.map(task => task.id))
+        // For these rooms, the fetched rows are the source of truth. Remove all
+        // cached tasks belonging to them before merging; otherwise deleted rows
+        // stay in React state and reappear after refresh or another realtime event.
+        const loadedLocalRoomIds = new Set(groupRooms.filter(room => roomIds.includes(room.dbId)).map(room => room.id))
         setTasks(current => {
-          const next = [...current.filter(task => task.type !== 'งานกลุ่ม' || !remoteIds.has(task.id)), ...remoteTasks]
-          // Avoid echo-writing an identical realtime payload back to Supabase.
+          const next = [...current.filter(task => task.type !== 'งานกลุ่ม' || task.groupRoomId === undefined || !loadedLocalRoomIds.has(task.groupRoomId)), ...remoteTasks]
           return JSON.stringify(current) === JSON.stringify(next) ? current : next
         })
       })
@@ -1280,11 +1284,23 @@ function App() {
         setGroupRoomMessage('ไม่พบห้องของงานนี้ กรุณารีเฟรชข้อมูลห้องแล้วลองลบอีกครั้ง')
         return
       }
-      const { error } = await supabase.from('group_tasks').delete()
-        .eq('room_id', room.dbId).eq('task_key', String(task.id))
-      if (error) {
-        console.error('ลบงานกลุ่มออนไลน์ไม่สำเร็จ:', error.message)
-        setGroupRoomMessage(`ลบงานไม่สำเร็จ: ${error.message}`)
+      try {
+        // Request the deleted row back so an RLS-filtered DELETE (which can return
+        // no error but affect zero rows) is not mistaken for success.
+        const { data: deletedRows, error } = await supabase.from('group_tasks')
+          .delete()
+          .eq('room_id', room.dbId)
+          .eq('task_key', String(task.id))
+          .select('id,task_key')
+        if (error) throw error
+        if (!deletedRows?.length) {
+          setGroupRoomMessage('ลบงานไม่สำเร็จ: ไม่พบแถวงานใน Supabase หรือสิทธิ์ RLS ไม่อนุญาตให้ลบ กรุณารัน SQL สำหรับสิทธิ์ลบงานกลุ่มที่แนบมา แล้วลองใหม่')
+          return
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String((error as { message?: string })?.message || error)
+        console.error('ลบงานกลุ่มออนไลน์ไม่สำเร็จ:', error)
+        setGroupRoomMessage(`ลบงานไม่สำเร็จ: ${detail}`)
         return
       }
     }
@@ -1614,28 +1630,25 @@ function App() {
               {room.ownerId !== authSession?.user?.id && <button type="button" className="group-room-delete" disabled={groupRoomBusy} onClick={() => void leaveGroupRoom(room)}>ออกจากกลุ่ม</button>}
               <div className="group-room-members"><strong>สมาชิกที่เข้าร่วมจริง</strong><div>{room.members.map(member => <span className="group-member-chip" key={`${room.dbId}-${member.userId}`}>👤 {memberDisplayNames[member.userId] || (member.userId === authSession?.user?.id ? profileName : `สมาชิก ${member.userId.slice(0, 6)}`)} {member.role === 'owner' ? '(เจ้าของห้อง)' : ''}</span>)}</div></div>
               {room.ownerId === authSession?.user?.id && <button type="button" className="group-room-delete" onClick={async () => {
-                if (!window.confirm(`ต้องการลบห้อง “${room.name}” ใช่ไหม? งานกลุ่มทั้งหมดในห้องนี้จะถูกลบสำหรับสมาชิกทุกคน และไม่สามารถกู้คืนได้`)) return
-                if (!supabase || !authSession?.user?.id) return
+                if (!window.confirm(`ต้องการลบห้อง “${room.name}” ใช่ไหม?`)) return
+                if (!supabase) return
                 setGroupRoomBusy(true)
                 try {
-                  // Delete child rows before the room so stale tasks cannot reappear.
-                  // Each step checks errors; if RLS denies a delete, do not claim success.
+                  // Delete dependent rows explicitly so this works even when the
+                  // database has no ON DELETE CASCADE foreign keys configured.
                   const { error: tasksError } = await supabase.from('group_tasks').delete().eq('room_id', room.dbId)
                   if (tasksError) throw tasksError
                   const { error: membersError } = await supabase.from('group_members').delete().eq('room_id', room.dbId)
                   if (membersError) throw membersError
                   const { error: roomError } = await supabase.from('group_rooms').delete().eq('id', room.dbId).eq('owner_id', authSession.user.id)
                   if (roomError) throw roomError
-                  setTasks(current => current.filter(task => !(task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)))
                   setGroupRooms(current => current.filter(item => item.dbId !== room.dbId))
+                  setTasks(current => current.filter(task => !(task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)))
                   if (selectedWorkspaceRoomId === room.id) setSelectedWorkspaceRoomId(null)
-                  setGroupRoomMessage(`ลบห้อง “${room.name}” และงานทั้งหมดในห้องแล้ว`)
-                } catch (error) {
-                  const detail = error && typeof error === 'object' && 'message' in error ? String((error as { message?: unknown }).message || '') : String(error)
-                  console.error('ลบห้องและงานกลุ่มไม่สำเร็จ:', error)
-                  setGroupRoomMessage(`ลบห้องไม่สำเร็จ: ${detail || 'ตรวจสอบสิทธิ์ RLS ใน Supabase'}`)
-                } finally { setGroupRoomBusy(false) }
-              }} disabled={groupRoomBusy}>ลบห้อง</button>}
+                  setGroupRoomMessage('ลบห้องและงานทั้งหมดในห้องเรียบร้อยแล้ว')
+                } catch (error) { setGroupRoomMessage(error instanceof Error ? `ลบห้องไม่สำเร็จ: ${error.message}` : 'ลบห้องไม่สำเร็จ') }
+                finally { setGroupRoomBusy(false) }
+              }}>ลบห้อง</button>}
             </article>
           })}</div>}
         </section>}

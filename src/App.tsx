@@ -434,8 +434,8 @@ function App() {
       return
     }
     const cleanItems = groupProjectItems.filter(item => item.title.trim() && item.assignedTo)
-    if (!groupProjectTitle.trim() || !cleanItems.length) {
-      setGroupRoomMessage('กรอกชื่อโปรเจกต์ และเพิ่มงานพร้อมผู้รับผิดชอบอย่างน้อย 1 งาน')
+    if (!groupProjectTitle.trim() || !groupProjectDueDate || !cleanItems.length) {
+      setGroupRoomMessage('กรอกชื่อโปรเจกต์ กำหนดส่งของโปรเจกต์ และเพิ่มงานย่อยพร้อมผู้รับผิดชอบอย่างน้อย 1 งาน')
       return
     }
     if (cleanItems.some(item => !room.members.some(member => member.userId === item.assignedTo))) {
@@ -490,9 +490,23 @@ function App() {
       setShowGroupProjectForm(false)
       setGroupRoomMessage(`บันทึกและแบ่งงานโปรเจกต์ “${newTasks[0].subject}” สำเร็จ ${newTasks.length} งาน`)
     } catch (error) {
-      console.error('บันทึกงานกลุ่มลง Supabase ไม่สำเร็จ:', error)
-      const detail = error instanceof Error ? error.message : 'ไม่ทราบสาเหตุ'
-      setGroupRoomMessage(`บันทึกงานไม่สำเร็จ: ${detail} — ตรวจสอบตาราง group_tasks, unique constraint (room_id, task_key) และ RLS policy ใน Supabase`)
+      // Supabase/PostgREST errors are plain objects, not always Error instances.
+      // Show the actual database message, code, details, and hint.
+      const dbError = error as { message?: string; details?: string; hint?: string; code?: string }
+      console.error('บันทึกงานกลุ่มลง Supabase ไม่สำเร็จ:', {
+        message: dbError?.message,
+        details: dbError?.details,
+        hint: dbError?.hint,
+        code: dbError?.code,
+        raw: error,
+      })
+      const detail = [
+        dbError?.message,
+        dbError?.details,
+        dbError?.hint,
+        dbError?.code ? `รหัส ${dbError.code}` : '',
+      ].filter(Boolean).join(' | ') || String(error)
+      setGroupRoomMessage(`บันทึกงานไม่สำเร็จ: ${detail} — เปิด Console เพื่อดูรายละเอียดเพิ่มเติม`)
       setCloudStatus('บันทึกงานกลุ่มไม่สำเร็จ')
     } finally {
       setGroupRoomBusy(false)
@@ -1208,8 +1222,8 @@ function App() {
                 <h3>สร้างโปรเจกต์และแบ่งงาน</h3>
                 <label>ชื่อโปรเจกต์<input value={groupProjectTitle} onChange={event => setGroupProjectTitle(event.target.value)} required placeholder="เช่น โครงงานวิทยาศาสตร์" /></label>
                 <label>รายละเอียดโปรเจกต์<textarea value={groupProjectDescription} onChange={event => setGroupProjectDescription(event.target.value)} placeholder="อธิบายเป้าหมายและรายละเอียดของโปรเจกต์" rows={3} /></label>
-                <label>วันที่ส่ง<input type="date" value={groupProjectDueDate} onChange={event => setGroupProjectDueDate(event.target.value)} /></label>
-                <div className="group-project-items-heading"><strong>รายการงานย่อย</strong><button type="button" onClick={() => setGroupProjectItems(items => [...items, { title: '', assignedTo: authSession.user.id }])}>＋ เพิ่มหัวข้องาน</button></div>
+                <label>กำหนดส่งของโปรเจกต์ (ใช้กับงานย่อยทุกข้อ)<input type="date" value={groupProjectDueDate} onChange={event => setGroupProjectDueDate(event.target.value)} required /></label>
+                <div className="group-project-items-heading"><strong>รายการงานย่อย</strong><small>แต่ละรายการกรอกเฉพาะชื่องานและผู้รับผิดชอบ โดยใช้วันกำหนดส่งของโปรเจกต์ร่วมกัน</small><button type="button" onClick={() => setGroupProjectItems(items => [...items, { title: '', assignedTo: authSession.user.id }])}>＋ เพิ่มหัวข้องาน</button></div>
                 {groupProjectItems.map((item, index) => <div className="group-project-item" key={index}>
                   <input value={item.title} onChange={event => setGroupProjectItems(items => items.map((row, rowIndex) => rowIndex === index ? { ...row, title: event.target.value } : row))} placeholder={`หัวข้องานที่ ${index + 1}`} aria-label={`หัวข้องานที่ ${index + 1}`} />
                   <select value={item.assignedTo} onChange={event => setGroupProjectItems(items => items.map((row, rowIndex) => rowIndex === index ? { ...row, assignedTo: event.target.value } : row))} required aria-label="ผู้รับผิดชอบ">
@@ -1838,4 +1852,3 @@ function AuthScreen() {
 
 export default App  
   
-

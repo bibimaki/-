@@ -281,6 +281,7 @@ function App() {
   const [selectedRoomId] = useState<number | null>(null)
   const [selectedWorkspaceRoomId, setSelectedWorkspaceRoomId] = useState<number | null>(null)
   const [showGroupProjectForm, setShowGroupProjectForm] = useState(false)
+  const [groupProjectStep, setGroupProjectStep] = useState<1 | 2>(1)
   const [groupProjectTitle, setGroupProjectTitle] = useState(() => readSessionDraft('groupProjectTitle'))
   const [groupProjectDescription, setGroupProjectDescription] = useState(() => readSessionDraft('groupProjectDescription'))
   const [groupProjectDueDate, setGroupProjectDueDate] = useState(() => readSessionDraft('groupProjectDueDate'))
@@ -360,6 +361,38 @@ function App() {
     return () => { cancelled = true }
   }, [authSession?.user?.id, cloudReady])
 
+  // Refresh room member counts live so the host can begin setup as soon as someone joins.
+  useEffect(() => {
+    if (!supabase || !authSession?.user?.id || !cloudReady || groupRooms.length === 0) return
+    let cancelled = false
+    const roomIds = groupRooms.map(room => room.dbId)
+    const refreshMembers = async () => {
+      const { data, error } = await supabase!
+        .from('group_members')
+        .select('room_id,user_id,role')
+        .in('room_id', roomIds)
+      if (cancelled || error || !data) {
+        if (error) console.warn('อัปเดตรายชื่อสมาชิกไม่สำเร็จ:', error.message)
+        return
+      }
+      setGroupRooms(current => current.map(room => ({
+        ...room,
+        members: data.filter(member => member.room_id === room.dbId).map(member => ({ userId: member.user_id, role: member.role })),
+      })))
+    }
+    const channel = supabase
+      .channel(`aevora-group-members-${authSession.user.id}-${roomIds.join('-')}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members' }, payload => {
+        const row = (payload.new && Object.keys(payload.new).length ? payload.new : payload.old) as Record<string, unknown> | undefined
+        if (row && typeof row.room_id === 'string' && roomIds.includes(row.room_id)) void refreshMembers()
+      })
+      .subscribe()
+    return () => {
+      cancelled = true
+      void supabase!.removeChannel(channel)
+    }
+  }, [authSession?.user?.id, cloudReady, groupRooms.map(room => `${room.dbId}:${room.members.length}`).join('|')])
+
   // Resolve member display names from the shared public-profile table.
   useEffect(() => {
     let cancelled = false
@@ -438,6 +471,17 @@ function App() {
     setGroupRoomMessage(`จบงาน “${task.title}” แล้ว`)
   }
 
+  function continueGroupProjectSetup(event: FormEvent<HTMLFormElement>, room: GroupRoom) {
+    event.preventDefault()
+    if (room.ownerId !== authSession?.user?.id) return
+    if (!groupProjectTitle.trim() || !groupProjectDueDate) {
+      setGroupRoomMessage('กรอกชื่อโปรเจกต์และกำหนดส่งก่อนกดไปต่อ')
+      return
+    }
+    setGroupProjectStep(2)
+    setGroupRoomMessage('เพิ่มงานย่อยและเลือกผู้รับผิดชอบให้แต่ละงานได้เลย')
+  }
+
   async function createGroupProject(event: FormEvent<HTMLFormElement>, room: GroupRoom) {
     event.preventDefault()
     const userId = authSession?.user?.id
@@ -506,6 +550,7 @@ function App() {
       setGroupProjectDescription('')
       setGroupProjectDueDate('')
       setGroupProjectItems([{ title: '', assignedTo: userId }])
+      setGroupProjectStep(1)
       navigateGroupProjectForm(false)
       setGroupRoomMessage(`บันทึกและแบ่งงานโปรเจกต์ “${newTasks[0].subject}” สำเร็จ ${newTasks.length} งาน`)
     } catch (error) {
@@ -677,9 +722,18 @@ function App() {
         throw memberError
       }
       setNewRoomName('')
-      setGroupRoomMessage('สร้างห้องสำเร็จแล้ว คัดลอกลิงก์เพื่อเชิญเพื่อนได้เลย')
+      setGroupRoomMessage('')
       const { data: members } = await supabase.from('group_members').select('room_id,user_id,role').eq('room_id', room.id)
-      setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: (members || []).map(member => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
+      const localRoomId = Date.now()
+      setGroupRooms(current => [{ id: localRoomId, dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: (members || []).map(member => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
+      // Open the room immediately so the first screen is the invite code and waiting state.
+      window.history.pushState(
+        { ...getNavigationSnapshot(), aevoraNav: 'เชิญเพื่อน', selectedWorkspaceRoomId: localRoomId },
+        '',
+        window.location.href,
+      )
+      setActiveNav('เชิญเพื่อน')
+      setSelectedWorkspaceRoomId(localRoomId)
     } catch (error) {
       console.error('สร้างห้องงานกลุ่มไม่สำเร็จ:', error)
       setGroupRoomMessage(error instanceof Error ? `สร้างห้องไม่สำเร็จ: ${error.message}` : 'สร้างห้องไม่สำเร็จ กรุณาตรวจสอบ RLS policies ใน Supabase')
@@ -710,8 +764,17 @@ function App() {
       const { data: members, error: membersError } = await supabase.from('group_members')
         .select('room_id,user_id,role').eq('room_id', room.id)
       if (membersError) throw membersError
-      setGroupRoomMessage(`เข้าร่วมห้อง “${room.name}” สำเร็จแล้ว`)
-      setGroupRooms(current => [{ id: Date.now(), dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: (members || []).map(member => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
+      setGroupRoomMessage('')
+      const localRoomId = Date.now()
+      setGroupRooms(current => [{ id: localRoomId, dbId: room.id, ownerId: room.owner_id, name: room.name, code: room.invite_code, members: (members || []).map(member => ({ userId: member.user_id, role: member.role })) }, ...current.filter(item => item.dbId !== room.id)])
+      // Open the room immediately so the first screen is the invite code and waiting state.
+      window.history.pushState(
+        { ...getNavigationSnapshot(), aevoraNav: 'เชิญเพื่อน', selectedWorkspaceRoomId: localRoomId },
+        '',
+        window.location.href,
+      )
+      setActiveNav('เชิญเพื่อน')
+      setSelectedWorkspaceRoomId(localRoomId)
     } catch (error) {
       console.error('เข้าร่วมห้องงานกลุ่มไม่สำเร็จ:', error)
       setGroupRoomMessage(error instanceof Error ? `เข้าร่วมห้องไม่สำเร็จ: ${error.message}` : 'เข้าร่วมห้องไม่สำเร็จ กรุณาตรวจสอบ RLS policies ใน Supabase')
@@ -875,6 +938,7 @@ function App() {
     showForm,
     editingId,
     showGroupProjectForm,
+    groupProjectStep,
   })
 
   function navigateTo(nextNav: string) {
@@ -941,6 +1005,7 @@ function App() {
         showForm?: boolean
         editingId?: number | null
         showGroupProjectForm?: boolean
+        groupProjectStep?: 1 | 2
       } | null
       if (!state?.aevoraNav) return
       setActiveNav(state.aevoraNav)
@@ -949,6 +1014,7 @@ function App() {
       setShowForm(Boolean(state.showForm))
       setEditingId(state.editingId ?? null)
       setShowGroupProjectForm(Boolean(state.showGroupProjectForm))
+      setGroupProjectStep(state.groupProjectStep === 2 ? 2 : 1)
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
@@ -1368,29 +1434,35 @@ function App() {
             {activeRoom ? <>
               <button type="button" className="task-back-button" onClick={() => setSelectedWorkspaceRoomId(null)}>← กลับไปห้องทำงานกลุ่ม</button>
               <header className="group-overview-hero">
-                <div><span className="eyebrow">AEVORA · GROUP WORKSPACE</span><h2>{activeRoom.name}</h2><p>ภาพรวมงานของสมาชิกทุกคนในห้องนี้</p><span className="group-overview-code">รหัสห้อง {activeRoom.code}</span></div>
-                <div className="group-overview-progress"><strong>{overallProgress}%</strong><span>ความคืบหน้ารวม</span><div className="group-overview-track"><div style={{width: `${overallProgress}%`}} /></div><small>{completedRoomTasks} จาก {roomTasks.length} งานเสร็จแล้ว</small></div>
+                <div><span className="eyebrow">AEVORA · GROUP WORKSPACE</span><h2>{activeRoom.name}</h2><p>{roomTasks.length ? 'ภาพรวมงานของสมาชิกทุกคนในห้องนี้' : 'แชร์รหัสห้องให้เพื่อน เพื่อเริ่มต้นทำงานร่วมกัน'}</p><span className="group-overview-code">รหัสห้อง {activeRoom.code}</span></div>
+                {roomTasks.length > 0 && <div className="group-overview-progress"><strong>{overallProgress}%</strong><span>ความคืบหน้ารวม</span><div className="group-overview-track"><div style={{width: `${overallProgress}%`}} /></div><small>{completedRoomTasks} จาก {roomTasks.length} งานเสร็จแล้ว</small></div>}
               </header>
               {groupRoomMessage && <p className="task-inline-message" role="status">{groupRoomMessage}</p>}
-              {activeRoom.ownerId === authSession?.user?.id && !showGroupProjectForm && <div className="group-project-start">
-                <div><strong>เริ่มดำเนินงานโปรเจกต์</strong><p>{activeRoom.members.length < 2 ? 'ต้องมีสมาชิกอย่างน้อย 2 คนในห้องก่อน จึงจะเริ่มแบ่งงานได้' : 'กำหนดรายละเอียดโปรเจกต์ แล้วแบ่งงานให้สมาชิก รวมถึงโฮสต์ได้'}</p></div>
-                <button type="button" disabled={activeRoom.members.length < 2} onClick={() => { setGroupProjectItems([{ title: '', assignedTo: authSession.user.id }]); navigateGroupProjectForm(true); setGroupRoomMessage('') }}>เริ่มทำงาน</button>
+              {activeRoom.ownerId === authSession?.user?.id && activeRoom.members.length >= 2 && !roomTasks.length && !showGroupProjectForm && <div className="group-project-start">
+                <div><strong>ตั้งค่าการทำงาน</strong><p>{activeRoom.members.length < 2 ? 'รอสมาชิกอย่างน้อย 1 คนเข้าร่วมห้องก่อน' : 'ตั้งชื่อโปรเจกต์ ใส่รายละเอียดและกำหนดส่ง แล้วค่อยแบ่งงานย่อยให้สมาชิก'}</p></div>
+                <button type="button" disabled={activeRoom.members.length < 2} onClick={() => { setGroupProjectItems([{ title: '', assignedTo: authSession.user.id }]); setGroupProjectStep(1); setGroupProjectTitle(''); setGroupProjectDescription(''); setGroupProjectDueDate(''); navigateGroupProjectForm(true); setGroupRoomMessage('') }}>ตั้งค่าการทำงาน</button>
               </div>}
-              {showGroupProjectForm && activeRoom.ownerId === authSession?.user?.id && <form className="group-project-form" onSubmit={event => createGroupProject(event, activeRoom)}>
-                <h3>สร้างโปรเจกต์และแบ่งงาน</h3>
-                <label>ชื่อโปรเจกต์<input value={groupProjectTitle} onChange={event => setGroupProjectTitle(event.target.value)} required placeholder="เช่น โครงงานวิทยาศาสตร์" /></label>
-                <label>รายละเอียดโปรเจกต์<textarea value={groupProjectDescription} onChange={event => setGroupProjectDescription(event.target.value)} placeholder="อธิบายเป้าหมายและรายละเอียดของโปรเจกต์" rows={3} /></label>
-                <label>กำหนดส่งของโปรเจกต์ (ใช้กับงานย่อยทุกข้อ)<input type="date" value={groupProjectDueDate} onChange={event => setGroupProjectDueDate(event.target.value)} required /></label>
-                <div className="group-project-items-heading"><strong>รายการงานย่อย</strong><small>แต่ละรายการกรอกเฉพาะชื่องานและผู้รับผิดชอบ โดยใช้วันกำหนดส่งของโปรเจกต์ร่วมกัน</small><button type="button" onClick={() => setGroupProjectItems(items => [...items, { title: '', assignedTo: authSession.user.id }])}>＋ เพิ่มหัวข้องาน</button></div>
-                {groupProjectItems.map((item, index) => <div className="group-project-item" key={index}>
-                  <input value={item.title} onChange={event => setGroupProjectItems(items => items.map((row, rowIndex) => rowIndex === index ? { ...row, title: event.target.value } : row))} placeholder={`หัวข้องานที่ ${index + 1}`} aria-label={`หัวข้องานที่ ${index + 1}`} />
-                  <select value={item.assignedTo} onChange={event => setGroupProjectItems(items => items.map((row, rowIndex) => rowIndex === index ? { ...row, assignedTo: event.target.value } : row))} required aria-label="ผู้รับผิดชอบ">
-                    <option value="">เลือกผู้รับผิดชอบ</option>{activeRoom.members.map(member => <option key={member.userId} value={member.userId}>{memberDisplayNames[member.userId] || (member.userId === authSession?.user?.id ? profileName : `สมาชิก ${member.userId.slice(0, 6)}`)}{member.role === 'owner' ? ' (โฮสต์)' : ''}</option>)}
-                  </select>
-                  {groupProjectItems.length > 1 && <button type="button" aria-label="ลบหัวข้องาน" onClick={() => setGroupProjectItems(items => items.filter((_, rowIndex) => rowIndex !== index))}>ลบ</button>}
-                </div>)}
-                <div className="group-project-form-actions"><button type="button" className="text-button" onClick={() => navigateGroupProjectForm(false)}>ยกเลิก</button><button type="submit" disabled={groupRoomBusy}>{groupRoomBusy ? 'กำลังบันทึก…' : 'เริ่มแบ่งงานทั้งหมด'}</button></div>
+              {showGroupProjectForm && activeRoom.ownerId === authSession?.user?.id && <form className="group-project-form" onSubmit={event => groupProjectStep === 1 ? continueGroupProjectSetup(event, activeRoom) : createGroupProject(event, activeRoom)}>
+                {groupProjectStep === 1 ? <>
+                  <div className="group-project-step-heading"><span className="eyebrow">ขั้นตอนที่ 1 จาก 2</span><h3>ตั้งค่าการทำงาน</h3><p>ใส่ข้อมูลโปรเจกต์ให้เรียบร้อย แล้วค่อยแบ่งงานให้สมาชิกในขั้นตอนถัดไป</p></div>
+                  <label>ชื่อโปรเจกต์<input value={groupProjectTitle} onChange={event => setGroupProjectTitle(event.target.value)} required placeholder="เช่น โครงงานวิทยาศาสตร์" /></label>
+                  <label>รายละเอียดโปรเจกต์<textarea value={groupProjectDescription} onChange={event => setGroupProjectDescription(event.target.value)} placeholder="อธิบายเป้าหมายหรือรายละเอียดของโปรเจกต์" rows={3} /></label>
+                  <label>กำหนดส่งโปรเจกต์<input type="date" value={groupProjectDueDate} onChange={event => setGroupProjectDueDate(event.target.value)} required /></label>
+                  <div className="group-project-form-actions"><button type="button" className="text-button" onClick={() => navigateGroupProjectForm(false)}>ยกเลิก</button><button type="submit">ไปต่อ →</button></div>
+                </> : <>
+                  <div className="group-project-step-heading"><span className="eyebrow">ขั้นตอนที่ 2 จาก 2</span><h3>แบ่งงานให้สมาชิก</h3><p><strong>{groupProjectTitle}</strong> · กำหนดส่ง {groupProjectDueDate}</p><small>{groupProjectDescription || 'ไม่มีรายละเอียดเพิ่มเติม'}</small></div>
+                  <div className="group-project-items-heading"><strong>งานย่อยของโปรเจกต์</strong><small>เพิ่มงานย่อยและเลือกคนรับผิดชอบ ระบบจะสร้างงานให้สมาชิกหลังจากกดแบ่งงานเสร็จ</small><button type="button" onClick={() => setGroupProjectItems(items => [...items, { title: '', assignedTo: authSession.user.id }])}>＋ เพิ่มงานย่อย</button></div>
+                  {groupProjectItems.map((item, index) => <div className="group-project-item" key={index}>
+                    <input value={item.title} onChange={event => setGroupProjectItems(items => items.map((row, rowIndex) => rowIndex === index ? { ...row, title: event.target.value } : row))} placeholder={`ชื่องานย่อยที่ ${index + 1}`} aria-label={`ชื่องานย่อยที่ ${index + 1}`} required />
+                    <select value={item.assignedTo} onChange={event => setGroupProjectItems(items => items.map((row, rowIndex) => rowIndex === index ? { ...row, assignedTo: event.target.value } : row))} required aria-label="ผู้รับผิดชอบ">
+                      <option value="">เลือกผู้รับผิดชอบ</option>{activeRoom.members.map(member => <option key={member.userId} value={member.userId}>{memberDisplayNames[member.userId] || (member.userId === authSession?.user?.id ? profileName : `สมาชิก ${member.userId.slice(0, 6)}`)}{member.role === 'owner' ? ' (โฮสต์)' : ''}</option>)}
+                    </select>
+                    {groupProjectItems.length > 1 && <button type="button" aria-label="ลบงานย่อย" onClick={() => setGroupProjectItems(items => items.filter((_, rowIndex) => rowIndex !== index))}>ลบ</button>}
+                  </div>)}
+                  <div className="group-project-form-actions"><button type="button" className="text-button" onClick={() => setGroupProjectStep(1)}>← กลับไปแก้รายละเอียด</button><button type="submit" disabled={groupRoomBusy}>{groupRoomBusy ? 'กำลังบันทึก…' : 'แบ่งงานเสร็จ · เริ่มทำงาน'}</button></div>
+                </>}
               </form>}
+              {!roomTasks.length && !showGroupProjectForm && (activeRoom.ownerId !== authSession?.user?.id || activeRoom.members.length < 2) ? <section className="group-room-waiting-state"><div className="group-room-empty"><span>✦</span><strong>{activeRoom.members.length < 2 ? 'รอเพื่อนเข้าร่วมห้อง' : 'รอโฮสต์ตั้งค่าการทำงาน'}</strong><p>{activeRoom.members.length < 2 ? 'ส่งรหัสห้องนี้ให้เพื่อน เมื่อมีสมาชิกเข้าร่วมแล้ว โฮสต์จึงจะเริ่มตั้งค่าและแบ่งงานได้' : 'เมื่อโฮสต์แบ่งงานเสร็จ งานและเครื่องมือของทีมจะปรากฏที่นี่โดยอัตโนมัติ'}</p></div></section> : !roomTasks.length ? null : <>
               <div className="group-overview-stats"><div><strong>{activeRoom.members.length}</strong><span>สมาชิก</span></div><div><strong>{roomTasks.length}</strong><span>งานทั้งหมด</span></div><div><strong>{completedRoomTasks}</strong><span>งานเสร็จแล้ว</span></div><div><strong>{roomTasks.length - completedRoomTasks}</strong><span>งานที่เหลือ</span></div></div>
               <section className="group-overview-section"><div className="group-overview-section-heading"><div><h3>สมาชิกในห้อง</h3><p>ดูว่าใครกำลังทำงานอะไรอยู่</p></div></div>
                 <div className="group-overview-members">{activeRoom.members.map(member => {
@@ -1404,6 +1476,7 @@ function App() {
               <section className="group-overview-section"><div className="group-overview-section-heading"><div><h3>งานทั้งหมดของกลุ่ม</h3><p>ทุกคนดูความคืบหน้าได้ แต่แก้ไขได้เฉพาะงานที่มีสิทธิ์</p></div>{activeRoom.ownerId === authSession?.user?.id && <button type="button" onClick={() => { setTaskRoomId(activeRoom.id); setType('งานกลุ่ม'); setTitle(''); setSubject(''); setDescription(''); setAssignedTo(authSession.user.id); setDue(''); setEditingId(null); navigateTo('งานกลุ่ม'); navigateTaskForm(true, null) }}>＋ เพิ่มงาน</button>}</div>
                 {roomTasks.length ? <div className="group-overview-task-list">{roomTasks.map(task => <article className="group-overview-task" key={task.id}><div className={`group-overview-task-status ${task.done ? 'is-done' : getTaskProgress(task) > 0 ? 'is-progress' : ''}`}>{task.done ? '✓' : getTaskProgress(task) > 0 ? '◷' : '○'}</div><div className="group-overview-task-main"><strong>{task.title}</strong><small>{task.subject || 'ไม่มีรายละเอียดวิชา'} · ผู้รับผิดชอบ: {(task.assignedTo && (memberDisplayNames[task.assignedTo] || (task.assignedTo === authSession?.user?.id ? profileName : task.assignedTo))) || 'ยังไม่ได้มอบหมาย'}</small><div className="group-overview-track"><div style={{width: `${getTaskProgress(task)}%`}} /></div></div><div className="group-overview-task-meta"><b>{getTaskProgress(task)}%</b><span>{task.done ? 'เสร็จสิ้น' : getTaskProgress(task) > 0 ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span><button type="button" onClick={() => { navigateTask(task.id, false); navigateTo('งานกลุ่ม') }}>ดูงาน</button>{task.done && (activeRoom.ownerId === authSession?.user?.id || task.assignedTo === authSession?.user?.id) && <button type="button" onClick={() => void finishGroupTask(task, activeRoom)}>จบงาน</button>}</div></article>)}</div> : <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีงานในห้องนี้</strong><p>เมื่อสร้างหรือแจกจ่ายงาน งานจะปรากฏในภาพรวมกลุ่มนี้</p>{activeRoom.ownerId === authSession?.user?.id && <button type="button" onClick={() => { setTaskRoomId(activeRoom.id); setType('งานกลุ่ม'); setTitle(''); setSubject(''); setDescription(''); setAssignedTo(authSession.user.id); setDue(''); setEditingId(null); navigateTo('งานกลุ่ม'); navigateTaskForm(true, null) }}>สร้างงานแรกของกลุ่ม</button>}</div>}
               </section>
+              </>}
             </> : <>
               <div className="group-workspace-hub-heading"><div><span className="eyebrow">AEVORA · TEAM SPACE</span><h2>ห้องทำงานกลุ่ม</h2><p>เลือกห้องเพื่อดูความคืบหน้า งานของเพื่อน และสถานะของทั้งทีม</p></div><button type="button" onClick={() => navigateTo('งานกลุ่ม')}>＋ สร้างหรือเข้าร่วมห้อง</button></div>
               {groupRooms.length ? <div className="group-workspace-room-grid">{groupRooms.map(room => {

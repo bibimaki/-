@@ -1508,7 +1508,12 @@ function App() {
     if (savedTaskId !== null) {
       setSelectedTaskId(savedTaskId)
       setShowForm(false)
-      const destination = finishedEditingCompletedTask ? 'งานที่เสร็จแล้ว' : 'งานของฉัน'
+      const savedTask = tasks.find(task => task.id === savedTaskId)
+      const destination = finishedEditingCompletedTask
+        ? 'งานที่เสร็จแล้ว'
+        : savedTask?.type === 'งานกลุ่ม' || type === 'งานกลุ่ม'
+          ? 'งานกลุ่ม'
+          : 'งานของฉัน'
       setActiveNav(destination)
       window.history.pushState(
         { ...getNavigationSnapshot(), aevoraNav: destination, selectedTaskId: savedTaskId, showForm: false, editingId: null },
@@ -1524,17 +1529,20 @@ function App() {
       return
     }
 
-    // Keep completed-task state while temporarily returning it to active work for editing.
+    // Keep the task's persisted completion state intact while the edit form is open.
+    // This prevents a completed task from disappearing or briefly looking unfinished.
     setEditingCompletedTask(task.done ? { id: task.id, completedAt: task.completedAt } : null)
-    if (task.done) {
-      setTasks(current => current.map(item => item.id === task.id ? { ...item, done: false, progress: Math.min(item.progress || 0, 99), completedAt: undefined } : item))
-    }
-    setActiveNav('งานของฉัน')
+    const editDestination = task.done
+      ? 'งานที่เสร็จแล้ว'
+      : task.type === 'งานกลุ่ม'
+        ? 'งานกลุ่ม'
+        : 'งานของฉัน'
+    setActiveNav(editDestination)
     setEditingId(task.id); setTitle(task.title); setSubject(task.subject); setType(task.type); setDescription(task.description || ''); setTaskRoomId(task.groupRoomId ?? ''); setAssignedTo(task.assignedTo || '')
     setDue(task.dueDate || '')
     navigateTask(task.id, true)
     window.history.pushState(
-      { ...getNavigationSnapshot(), aevoraNav: 'งานของฉัน', selectedTaskId: task.id, showForm: true, editingId: task.id },
+      { ...getNavigationSnapshot(), aevoraNav: editDestination, selectedTaskId: task.id, showForm: true, editingId: task.id },
       '', window.location.href,
     )
 

@@ -112,6 +112,7 @@ type GroupRoom = {
   ownerId: string
   name: string
   code: string
+  closedAt?: string | null
   members: { userId: string; role: string }[]
 }
 
@@ -416,7 +417,7 @@ function App() {
           .eq('user_id', userId)
         if (memberError) throw memberError
         const joinedRoomIds = (memberships || []).map(row => row.room_id as string)
-        let roomQuery = supabase.from('group_rooms').select('id,owner_id,name,invite_code,created_at')
+        let roomQuery = supabase.from('group_rooms').select('id,owner_id,name,invite_code,created_at,closed_at')
         if (joinedRoomIds.length) {
           roomQuery = roomQuery.or(`owner_id.eq.${userId},id.in.(${joinedRoomIds.join(',')})`)
         } else {
@@ -438,6 +439,7 @@ function App() {
           ownerId: room.owner_id as string,
           name: room.name as string,
           code: room.invite_code as string,
+          closedAt: (room.closed_at as string | null) || null,
           members: allMemberships.filter(member => member.room_id === room.id).map(member => ({ userId: member.user_id, role: member.role })),
         })))
       } catch (error) {
@@ -610,6 +612,44 @@ function App() {
       .select('id')
     if (error) throw error
     if (!data?.length) throw new Error('ไม่พบงานในฐานข้อมูล หรือสิทธิ์ Supabase RLS ไม่อนุญาตให้เปลี่ยนสถานะงานนี้')
+  }
+
+  async function closeCompletedGroupRoom(room: GroupRoom) {
+    if (!supabase || !authSession?.user?.id) {
+      setGroupRoomMessage('กรุณาเข้าสู่ระบบก่อนปิดห้อง')
+      return
+    }
+    if (room.ownerId !== authSession.user.id) {
+      setGroupRoomMessage('เฉพาะเจ้าของห้องเท่านั้นที่ปิดห้องได้')
+      return
+    }
+    const roomTasks = tasks.filter(task => task.type === 'งานกลุ่ม' && task.groupRoomId === room.id)
+    if (!roomTasks.length || !roomTasks.every(task => task.done)) {
+      setGroupRoomMessage('ต้องทำงานทุกงานให้เสร็จก่อนจึงจะปิดห้องได้')
+      return
+    }
+    if (!window.confirm(`งานทั้งหมดในห้อง “${room.name}” เสร็จแล้ว ต้องการปิดห้องหรือไม่? งานที่เสร็จแล้วจะยังอยู่ในเมนู “งานที่เสร็จแล้ว”`)) return
+    setGroupRoomBusy(true)
+    try {
+      const closedAt = new Date().toISOString()
+      const { data, error } = await supabase.from('group_rooms')
+        .update({ closed_at: closedAt })
+        .eq('id', room.dbId)
+        .eq('owner_id', authSession.user.id)
+        .is('closed_at', null)
+        .select('id')
+      if (error) throw error
+      if (!data?.length) throw new Error('ปิดห้องไม่สำเร็จ อาจปิดไปแล้วหรือไม่มีสิทธิ์')
+      setGroupRooms(current => current.map(item => item.dbId === room.dbId ? { ...item, closedAt } : item))
+      setSelectedWorkspaceRoomId(null)
+      setActiveNav('เชิญเพื่อน')
+      setGroupRoomMessage(`ปิดห้อง “${room.name}” แล้ว งานที่เสร็จแล้วยังคงอยู่ในเมนูงานที่เสร็จแล้ว`)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String((error as { message?: string })?.message || error)
+      setGroupRoomMessage(`ปิดห้องไม่สำเร็จ: ${detail} — ตรวจสอบว่ารัน SQL migration แล้ว`)
+    } finally {
+      setGroupRoomBusy(false)
+    }
   }
 
   async function finishGroupTask(task: Task, room: GroupRoom) {
@@ -915,7 +955,7 @@ function App() {
       if (!code) throw new Error('สร้างรหัสห้องไม่สำเร็จ กรุณาลองใหม่')
       const { data: room, error: createError } = await supabase.from('group_rooms')
         .insert({ owner_id: authSession.user.id, name, invite_code: code })
-        .select('id,owner_id,name,invite_code,created_at').single()
+        .select('id,owner_id,name,invite_code,created_at,closed_at').single()
       if (createError) throw createError
       const { error: memberError } = await supabase.from('group_members')
         .insert({ room_id: room.id, user_id: authSession.user.id, role: 'owner' })
@@ -1962,7 +2002,7 @@ function App() {
             <button type="submit" disabled={groupRoomBusy}>เข้าร่วมด้วยรหัส</button>
           </form>
           {groupRoomMessage && <p className="task-inline-message" role="status">{groupRoomMessage}</p>}
-          {groupRooms.length === 0 ? <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีห้องงานกลุ่ม</strong><p>สร้างห้องใหม่หรือกรอกรหัสที่เพื่อนส่งให้เพื่อเข้าร่วม</p></div> : <div className="group-room-grid">{groupRooms.map(room => {
+          {groupRooms.filter(room => !room.closedAt).length === 0 ? <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีห้องงานกลุ่ม</strong><p>สร้างห้องใหม่หรือกรอกรหัสที่เพื่อนส่งให้เพื่อเข้าร่วม</p></div> : <div className="group-room-grid">{groupRooms.filter(room => !room.closedAt).map(room => {
             return <article className={`group-room-card ${selectedRoomId === room.id ? 'room-selected' : ''}`} key={room.dbId}>
               <div className="group-room-card-top"><span className="group-room-icon"><img src="/images/aevora-work-icons/group-work.png" alt="" /></span><span className="group-room-count">{room.members.length} คน · {tasks.filter(task => task.groupRoomId === room.id).length} งาน</span></div>
               <h3>{room.name}</h3>
@@ -2103,10 +2143,15 @@ function App() {
                   ? <div className="group-review-queue-list">{roomTasks.slice().sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || '')).map(task => <article className="group-review-queue-item" key={task.id}><div><strong>✓ {task.title}</strong><small>ผู้รับผิดชอบ: {memberDisplayNames[task.assignedTo || ''] || (task.assignedTo === authSession?.user?.id ? profileName : 'สมาชิก')} · เสร็จเมื่อ {task.completedAt ? new Date(task.completedAt).toLocaleString('th-TH') : 'ไม่ระบุเวลา'}</small><span>เสร็จสมบูรณ์ 100%</span></div><button type="button" onClick={() => { navigateTask(task.id, false); navigateTo('งานของฉัน') }}>ดูรายละเอียด</button></article>)}</div>
                   : <div className="group-room-empty"><span>🌱</span><strong>โปรเจกต์ยังดำเนินอยู่</strong><p>เหลืออีก {roomTasks.filter(task => !task.done).length} งานก่อนที่งานทั้งหมดของห้องนี้จะเสร็จสิ้น</p></div>}
               </section>
+              {roomTasks.length > 0 && roomTasks.every(task => task.done) && activeRoom.ownerId === authSession?.user?.id && !activeRoom.closedAt && <section className="group-overview-section" style={{borderColor:'#b9a1e8',background:'linear-gradient(120deg,#faf6ff,#fff)'}}>
+                <div className="group-overview-section-heading"><div><h3>🎉 งานกลุ่มเสร็จครบแล้ว</h3><p>ปิดห้องได้เมื่อไม่ต้องทำงานต่อ งานที่เสร็จแล้วจะยังคงอยู่ในเมนู “งานที่เสร็จแล้ว”</p></div>
+                  <button type="button" disabled={groupRoomBusy} onClick={() => void closeCompletedGroupRoom(activeRoom)}>{groupRoomBusy ? 'กำลังปิดห้อง…' : 'ปิดห้องทำงาน'}</button>
+                </div>
+              </section>}
               </>}
             </> : <>
               <div className="group-workspace-hub-heading"><div><span className="eyebrow">AEVORA · TEAM SPACE</span><h2 className="task-section-title"><img src="/images/aevora-work-icons/group-work.png" alt="" /> ห้องทำงานกลุ่ม</h2><p>เลือกห้องเพื่อดูความคืบหน้า งานของเพื่อน และสถานะของทั้งทีม</p></div><button type="button" onClick={() => navigateTo('งานกลุ่ม')}>＋ สร้างหรือเข้าร่วมห้อง</button></div>
-              {groupRooms.length ? <div className="group-workspace-room-grid">{groupRooms.map(room => {
+              {groupRooms.length ? <div className="group-workspace-room-grid">{groupRooms.filter(room => !room.closedAt).map(room => {
                 const roomTasksForCard = tasks.filter(task => task.groupRoomId === room.id)
                 const done = roomTasksForCard.filter(task => task.done).length
                 const progress = roomTasksForCard.length ? Math.round(roomTasksForCard.reduce((sum, task) => sum + getTaskProgress(task), 0) / roomTasksForCard.length) : 0

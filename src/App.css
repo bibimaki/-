@@ -4258,3 +4258,258 @@ button:focus-visible, a:focus-visible {
     padding: 10px;
   }
 }
+
+
+/* ===== AEVORA TASK UI: separate colorful blocks (no giant form frame) ===== */
+.task-detail-page {
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+.task-detail-heading {
+  padding: 4px 0 16px;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #eadcfb;
+}
+.task-detail-heading .eyebrow { color: #8a5bd1; font-weight: 700; }
+.task-detail-heading h2 { color: #33214e; letter-spacing: -.02em; }
+.task-detail-heading p { color: #806d94; }
+
+/* Do not draw one enclosing border around the whole form. Each field is its own card. */
+.detail-edit-form {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.detail-edit-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 13px;
+  border: 1.5px solid #d8c3fa;
+  border-radius: 13px;
+  color: #483263;
+  background: linear-gradient(145deg, #fffaff 0%, #f8f2ff 100%);
+  box-shadow: 0 3px 10px rgba(103, 69, 151, .055);
+  font-weight: 600;
+}
+.detail-edit-form > label:nth-child(2) {
+  border-color: #b8d7fb;
+  background: linear-gradient(145deg, #fbfdff, #f0f7ff);
+}
+.detail-edit-form > label:nth-child(3) {
+  border-color: #f3c5dc;
+  background: linear-gradient(145deg, #fffafd, #fff0f6);
+}
+.detail-edit-form > label:nth-child(4) {
+  border-color: #bde7d3;
+  background: linear-gradient(145deg, #fbfffd, #edfbf4);
+}
+.detail-edit-form > label:nth-child(5) {
+  border-color: #f0d39e;
+  background: linear-gradient(145deg, #fffefa, #fff6e7);
+}
+.detail-edit-form > label:nth-child(6),
+.detail-edit-form > .detail-description-field {
+  grid-column: 1 / -1;
+  border-color: #c8d3fa;
+  background: linear-gradient(145deg, #fcfcff, #f1f3ff);
+}
+.detail-edit-form > label input,
+.detail-edit-form > label select,
+.detail-edit-form > label textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1.5px solid #d8c9ed;
+  border-radius: 9px;
+  color: #35264c;
+  background: #fff;
+  outline: none;
+  font-weight: 400;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.detail-edit-form > label input:focus,
+.detail-edit-form > label select:focus,
+.detail-edit-form > label textarea:focus {
+  border-color: #9166d5;
+  box-shadow: 0 0 0 3px #a98ae526;
+}
+.detail-edit-form > .task-assignment-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.task-assignment-fields > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 13px;
+  border: 1.5px solid #b9d9f6;
+  border-radius: 13px;
+  color: #34577a;
+  background: linear-gradient(145deg, #fbfdff, #edf6ff);
+  font-weight: 600;
+}
+.task-assignment-fields > label select {
+  width: 100%;
+  padding: 11px;
+  border: 1px solid #b8d4f0;
+  border-radius: 9px;
+  background: white;
+}
+.task-assignment-hint { grid-column: 1 / -1; margin: 0; color: #657c99; }
+.detail-edit-form .task-edit-attachments {
+  grid-column: 1 / -1;
+  padding: 15px;
+  border: 1.5px solid #f0c8dc;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #fffafd, #fff0f6);
+}
+.task-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 0 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+.task-form-actions button {
+  min-height: 40px;
+  padding: 10px 17px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+/* Detail page: each information section gets its own distinct colored block. */
+.task-detail-grid {
+  gap: 13px !important;
+}
+.task-detail-card,
+.task-description-card,
+.subtask-panel,
+.task-extra-card,
+.task-review-submit,
+.task-review-pending {
+  min-width: 0;
+  border-width: 1.5px !important;
+  border-style: solid !important;
+  border-radius: 14px !important;
+  box-shadow: 0 4px 13px rgba(65, 42, 91, .055);
+}
+.task-detail-card:nth-child(4n + 1) {
+  border-color: #d8c3fa !important;
+  background: linear-gradient(145deg, #fffaff, #f7f0ff) !important;
+}
+.task-detail-card:nth-child(4n + 2) {
+  border-color: #b9dafa !important;
+  background: linear-gradient(145deg, #fbfdff, #eff7ff) !important;
+}
+.task-detail-card:nth-child(4n + 3) {
+  border-color: #f2c4dc !important;
+  background: linear-gradient(145deg, #fffafd, #fff0f6) !important;
+}
+.task-detail-card:nth-child(4n + 4) {
+  border-color: #b9e5d0 !important;
+  background: linear-gradient(145deg, #fbfffd, #edfbf4) !important;
+}
+.task-description-card {
+  border-color: #f0d39e !important;
+  background: linear-gradient(145deg, #fffefa, #fff6e7) !important;
+}
+.subtask-panel {
+  border-color: #b9e5d0 !important;
+  background: linear-gradient(145deg, #fbfffd, #edfbf4) !important;
+}
+.task-extra-card:nth-child(3n + 1) {
+  border-color: #d8c3fa !important;
+  background: linear-gradient(145deg, #fffaff, #f7f0ff) !important;
+}
+.task-extra-card:nth-child(3n + 2) {
+  border-color: #b9dafa !important;
+  background: linear-gradient(145deg, #fbfdff, #eff7ff) !important;
+}
+.task-extra-card:nth-child(3n + 3) {
+  border-color: #f2c4dc !important;
+  background: linear-gradient(145deg, #fffafd, #fff0f6) !important;
+}
+.task-extra-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.task-extra-heading h3 { color: #392653; font-weight: 700; }
+.task-extra-heading > span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #65458e;
+  background: #eee3ff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.task-comment,
+.task-attachment-list > *,
+.task-help-list > *,
+.task-activity-list > *,
+.subtask-list > * {
+  border-radius: 10px;
+}
+.task-comment-form,
+.task-help-form,
+.subtask-add-form {
+  padding: 12px;
+  border: 1px solid #d9c9ef;
+  border-radius: 11px;
+  background: #ffffffc9;
+}
+.task-comment-form input,
+.task-comment-form textarea,
+.task-help-form textarea,
+.subtask-add-form input {
+  border: 1px solid #d6c4eb;
+  border-radius: 9px;
+  background: white;
+}
+.task-back-button {
+  margin-bottom: 15px;
+  border: 1px solid #e1d1f4 !important;
+  border-radius: 10px !important;
+  color: #7350b4 !important;
+  background: #fbf7ff !important;
+}
+.task-inline-message {
+  padding: 12px 14px;
+  border: 1px solid #f1c1c1;
+  border-radius: 11px;
+  color: #8b3434;
+  background: #fff4f4;
+}
+
+@media (max-width: 680px) {
+  .detail-edit-form { grid-template-columns: minmax(0, 1fr); }
+  .detail-edit-form > .detail-description-field,
+  .detail-edit-form > label:nth-child(6),
+  .detail-edit-form > .task-assignment-fields,
+  .detail-edit-form .task-edit-attachments,
+  .task-form-actions { grid-column: auto; }
+  .detail-edit-form > .task-assignment-fields { grid-template-columns: minmax(0, 1fr); }
+}

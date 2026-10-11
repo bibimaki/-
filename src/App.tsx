@@ -491,7 +491,7 @@ function App() {
         if (typeof row.display_name === 'string') setMemberDisplayNames(current => ({ ...current, [row.user_id as string]: row.display_name as string }))
         if (typeof row.avatar_url === 'string' && row.avatar_url) setMemberAvatarUrls(current => ({ ...current, [row.user_id as string]: row.avatar_url as string }))
       }).subscribe()
-    return () => { void supabase.removeChannel(channel) }
+    return () => { void supabase?.removeChannel(channel) }
   }, [authSession?.user?.id])
 
   // Publish only the account's chosen display name to the member-visible profile table.

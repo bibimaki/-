@@ -273,6 +273,7 @@ function App() {
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
 
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingCompletedTask, setEditingCompletedTask] = useState<{ id: number; completedAt?: string } | null>(null)
 
   const [title, setTitle] = useState(() => readSessionDraft('title'))
 
@@ -1292,7 +1293,7 @@ function App() {
 
   function resetForm() {
 
-    setTitle(''); setSubject(''); setType('งานเดี่ยว'); setDue(''); setDescription(''); setTaskRoomId(''); setAssignedTo(''); setEditingId(null); setShowForm(false)
+    setTitle(''); setSubject(''); setType('งานเดี่ยว'); setDue(''); setDescription(''); setTaskRoomId(''); setAssignedTo(''); setEditingId(null); setEditingCompletedTask(null); setShowForm(false)
 
   }
 
@@ -1316,7 +1317,8 @@ function App() {
         return
       }
 
-      setTasks(current => current.map(task => task.id === editingId ? { ...task, title: title.trim(), subject: subject.trim() || 'งานทั่วไป', type, due: dueText, dueDate: due || undefined, description: description.trim(), groupRoomId: type === 'งานกลุ่ม' && taskRoomId !== '' ? taskRoomId : undefined, assignedTo: type === 'งานกลุ่ม' ? (assignedTo.trim() || undefined) : undefined } : task))
+      const completedEdit = editingCompletedTask?.id === editingId ? editingCompletedTask : null
+      setTasks(current => current.map(task => task.id === editingId ? { ...task, title: title.trim(), subject: subject.trim() || 'งานทั่วไป', type, due: dueText, dueDate: due || undefined, description: description.trim(), groupRoomId: type === 'งานกลุ่ม' && taskRoomId !== '' ? taskRoomId : undefined, assignedTo: type === 'งานกลุ่ม' ? (assignedTo.trim() || undefined) : undefined, done: completedEdit ? true : task.done, completedAt: completedEdit ? (completedEdit.completedAt || task.completedAt || new Date().toISOString()) : task.completedAt } : task))
 
     } else {
       const newId = Date.now()
@@ -1330,7 +1332,19 @@ function App() {
       setSelectedTaskId(newId)
     }
 
+    const finishedEditingCompletedTask = editingCompletedTask?.id === editingId ? editingCompletedTask : null
+    const savedTaskId = editingId
     resetForm()
+    if (savedTaskId !== null) {
+      setSelectedTaskId(savedTaskId)
+      setShowForm(false)
+      const destination = finishedEditingCompletedTask ? 'งานที่เสร็จแล้ว' : 'งานของฉัน'
+      setActiveNav(destination)
+      window.history.pushState(
+        { ...getNavigationSnapshot(), aevoraNav: destination, selectedTaskId: savedTaskId, showForm: false, editingId: null },
+        '', window.location.href,
+      )
+    }
 
   }
 
@@ -1340,10 +1354,19 @@ function App() {
       return
     }
 
-    navigateTask(task.id, true)
+    // Keep completed-task state while temporarily returning it to active work for editing.
+    setEditingCompletedTask(task.done ? { id: task.id, completedAt: task.completedAt } : null)
+    if (task.done) {
+      setTasks(current => current.map(item => item.id === task.id ? { ...item, done: false, progress: Math.min(item.progress || 0, 99), completedAt: undefined } : item))
+    }
+    setActiveNav('งานของฉัน')
     setEditingId(task.id); setTitle(task.title); setSubject(task.subject); setType(task.type); setDescription(task.description || ''); setTaskRoomId(task.groupRoomId ?? ''); setAssignedTo(task.assignedTo || '')
-
     setDue(task.dueDate || '')
+    navigateTask(task.id, true)
+    window.history.pushState(
+      { ...getNavigationSnapshot(), aevoraNav: 'งานของฉัน', selectedTaskId: task.id, showForm: true, editingId: task.id },
+      '', window.location.href,
+    )
 
     window.scrollTo({ top: 0, behavior: 'smooth' })
 
@@ -1852,7 +1875,7 @@ function App() {
         {activeNav === 'งานที่เสร็จแล้ว' && <section className="panel tasks-panel task-manager">
           <div className="panel-heading"><div><h2>✓ งานที่เสร็จแล้ว</h2><p className="muted">รวมงานที่ทำสำเร็จ พร้อมไฟล์ที่ส่งไว้ให้เปิดดูหรือดาวน์โหลดได้</p></div><span className="gamification-level">{tasks.filter(task => task.done).length} งาน</span></div>
           {tasks.filter(task => task.done).length === 0 ? <div className="empty-tasks" style={{padding:28,textAlign:'center'}}><div style={{fontSize:36,marginBottom:8}}>🌱</div><strong>ยังไม่มีงานที่เสร็จแล้ว</strong><p>เมื่อทำเครื่องหมายงานว่าเสร็จ งานจะมารวมอยู่ที่นี่อัตโนมัติ</p><button type="button" className="text-button" onClick={() => navigateTo('งานของฉัน')}>ไปที่งานของฉัน →</button></div> : <div className="task-list">{tasks.filter(task => task.done).slice().sort((a,b) => (b.completedAt || '').localeCompare(a.completedAt || '')).map(task => <article key={task.id} className="task-project-group" style={{marginBottom:16,padding:18,border:'1px solid rgba(126,100,160,.18)',borderRadius:18,background:'rgba(255,255,255,.62)'}}>
-            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}><div style={{display:'flex',gap:12,alignItems:'flex-start'}}><span style={{display:'grid',placeItems:'center',width:36,height:36,flexShrink:0,borderRadius:12,background:'#e6f7eb',color:'#25834a',fontSize:20}}>✓</span><div><h3 style={{margin:'0 0 5px',fontSize:17}}>{task.title}</h3><p className="muted" style={{margin:'0 0 6px'}}>{task.subject || 'ไม่มีหมวดหมู่'} · {task.type}</p><small className="muted">{task.completedAt ? `เสร็จเมื่อ ${new Date(task.completedAt).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}` : 'ทำเสร็จแล้ว'}</small></div></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className="text-button" onClick={() => { startEdit(task); navigateTo('งานของฉัน') }}>แก้ไขงาน ✎</button><button type="button" className="text-button" onClick={() => { navigateTask(task.id, false); navigateTo('งานของฉัน') }}>ดูรายละเอียดงาน →</button></div></div>
+            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}><div style={{display:'flex',gap:12,alignItems:'flex-start'}}><span style={{display:'grid',placeItems:'center',width:36,height:36,flexShrink:0,borderRadius:12,background:'#e6f7eb',color:'#25834a',fontSize:20}}>✓</span><div><h3 style={{margin:'0 0 5px',fontSize:17}}>{task.title}</h3><p className="muted" style={{margin:'0 0 6px'}}>{task.subject || 'ไม่มีหมวดหมู่'} · {task.type}</p><small className="muted">{task.completedAt ? `เสร็จเมื่อ ${new Date(task.completedAt).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}` : 'ทำเสร็จแล้ว'}</small></div></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className="text-button" onClick={() => { startEdit(task) }}>แก้ไขงาน ✎</button><button type="button" className="text-button" onClick={() => { navigateTask(task.id, false); navigateTo('งานของฉัน') }}>ดูรายละเอียดงาน →</button></div></div>
             <div style={{marginTop:16,paddingTop:13,borderTop:'1px solid rgba(126,100,160,.14)'}}><div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:10}}><strong>ไฟล์ที่ส่ง</strong><span className="muted">{task.attachments?.length || 0} ไฟล์</span></div>
               {task.attachments?.length ? <div style={{display:'grid',gap:9}}>{task.attachments.map(file => <div key={file.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',padding:'10px 12px',borderRadius:12,background:'rgba(255,255,255,.8)',border:'1px solid rgba(126,100,160,.12)'}}><div style={{display:'flex',alignItems:'center',gap:9,minWidth:0}}><span style={{fontSize:21}}>📎</span><div style={{minWidth:0}}><strong style={{display:'block',overflowWrap:'anywhere'}}>{file.name}</strong><small className="muted">{file.size >= 1024*1024 ? `${(file.size/(1024*1024)).toFixed(1)} MB` : `${Math.max(1,Math.round(file.size/1024))} KB`}</small></div></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className="text-button" onClick={async () => { try { let blob: Blob | undefined; if (file.storagePath) { if (!supabase) throw new Error('ยังไม่ได้เชื่อมต่อ Supabase'); const {data,error}=await supabase.storage.from('task-attachments').download(file.storagePath); if(error) throw error; blob=data || undefined } else if (file.dataUrl) { const response=await fetch(file.dataUrl); blob=await response.blob() } else { blob=await getAttachmentBlob(`${task.id}:${file.id}`) } if(!blob) { window.alert('ไม่พบไฟล์นี้ อาจเป็นไฟล์ที่เก็บอยู่ในเบราว์เซอร์หรืออุปกรณ์อื่น'); return } const url=URL.createObjectURL(blob); window.open(url,'_blank','noopener,noreferrer'); window.setTimeout(()=>URL.revokeObjectURL(url),60000) } catch(error) { console.error('เปิดไฟล์ไม่สำเร็จ:',error); window.alert('เปิดไฟล์ไม่สำเร็จ กรุณาลองดาวน์โหลดแทน') } }}>เปิดดู</button><button type="button" className="text-button" onClick={async () => { try { if(file.storagePath) { if(!supabase) throw new Error('ยังไม่ได้เชื่อมต่อ Supabase'); const {data,error}=await supabase.storage.from('task-attachments').download(file.storagePath); if(error) throw error; if(!data) throw new Error('ไม่พบไฟล์'); const url=URL.createObjectURL(data); const link=document.createElement('a'); link.href=url; link.download=file.name; link.click(); window.setTimeout(()=>URL.revokeObjectURL(url),1000); return } if(file.dataUrl) { const link=document.createElement('a'); link.href=file.dataUrl; link.download=file.name; link.click(); return } const blob=await getAttachmentBlob(`${task.id}:${file.id}`); if(!blob) { window.alert('ไม่พบไฟล์นี้ในเบราว์เซอร์'); return } const url=URL.createObjectURL(blob); const link=document.createElement('a'); link.href=url; link.download=file.name; link.click(); window.setTimeout(()=>URL.revokeObjectURL(url),1000) } catch(error) { console.error('ดาวน์โหลดไฟล์ไม่สำเร็จ:',error); window.alert('ดาวน์โหลดไฟล์ไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ') } }}>ดาวน์โหลด ↓</button></div></div>)}</div> : <p className="task-extra-empty" style={{margin:0}}>งานนี้ยังไม่มีไฟล์แนบ · กด “ดูรายละเอียดงาน” เพื่อดูข้อมูลและแนบไฟล์ได้</p>}
             </div>

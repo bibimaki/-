@@ -2194,7 +2194,64 @@ function App() {
                       <div className="completed-project-heading"><span>✦</span>{project}<span className="completed-project-count">{projectTasks.length} งาน</span></div>
                       <div className="completed-task-list">{projectTasks.map(task => <article key={task.id} className={`completed-task-card ${category.className}`}>
                         <span className="completed-task-check">✓</span>
-                        <div className="completed-task-main"><h4>{task.title}</h4><p>{task.subject || (task.type === 'งานกลุ่ม' ? 'โปรเจกต์กลุ่มอื่น ๆ' : 'งานทั่วไป')}</p><small>{task.completedAt ? `เสร็จเมื่อ ${new Date(task.completedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}` : 'ทำเสร็จแล้ว'}</small><span className="completed-attachment-count">📎 ไฟล์แนบ {task.attachments?.length || 0} ไฟล์</span></div>
+                        <div className="completed-task-main"><h4>{task.title}</h4><p>{task.subject || (task.type === 'งานกลุ่ม' ? 'โปรเจกต์กลุ่มอื่น ๆ' : 'งานทั่วไป')}</p><small>{task.completedAt ? `เสร็จเมื่อ ${new Date(task.completedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}` : 'ทำเสร็จแล้ว'}</small><span className="completed-attachment-count">📎 ไฟล์แนบ {task.attachments?.length || 0} ไฟล์</span>
+                          {task.attachments?.length ? <div className="completed-task-files" aria-label="ไฟล์งานที่ส่ง">
+                            {task.attachments.map(file => <div className="completed-task-file" key={file.id}>
+                              <span title={file.name}>📄 {file.name}</span>
+                              <small>{file.size >= 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`}</small>
+                              <button type="button" className="text-button" onClick={async () => {
+                                const previewTab = window.open('', '_blank')
+                                try {
+                                  let blob: Blob | undefined
+                                  if (file.storagePath) {
+                                    if (!supabase) throw new Error('ยังไม่ได้เชื่อมต่อ Supabase')
+                                    const { data, error } = await supabase.storage.from('task-attachments').download(file.storagePath)
+                                    if (error) throw error
+                                    blob = data || undefined
+                                  } else if (file.dataUrl) {
+                                    const response = await fetch(file.dataUrl)
+                                    blob = await response.blob()
+                                  } else {
+                                    blob = await getAttachmentBlob(`${task.id}:${file.id}`)
+                                  }
+                                  if (!blob) throw new Error('ไม่พบไฟล์ กรุณาลองอัปโหลดใหม่')
+                                  const url = URL.createObjectURL(blob)
+                                  if (previewTab) previewTab.location.href = url
+                                  else window.open(url, '_blank', 'noopener,noreferrer')
+                                  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+                                } catch (error) {
+                                  previewTab?.close()
+                                  setFileMessage(error instanceof Error ? `เปิดไฟล์ไม่สำเร็จ: ${error.message}` : 'เปิดไฟล์ไม่สำเร็จ')
+                                }
+                              }}>ดูไฟล์</button>
+                              <button type="button" className="text-button" onClick={async () => {
+                                try {
+                                  let blob: Blob | undefined
+                                  if (file.storagePath) {
+                                    if (!supabase) throw new Error('ยังไม่ได้เชื่อมต่อ Supabase')
+                                    const { data, error } = await supabase.storage.from('task-attachments').download(file.storagePath)
+                                    if (error) throw error
+                                    blob = data || undefined
+                                  } else if (file.dataUrl) {
+                                    const response = await fetch(file.dataUrl)
+                                    blob = await response.blob()
+                                  } else {
+                                    blob = await getAttachmentBlob(`${task.id}:${file.id}`)
+                                  }
+                                  if (!blob) throw new Error('ไม่พบไฟล์ กรุณาลองอัปโหลดใหม่')
+                                  const url = URL.createObjectURL(blob)
+                                  const link = document.createElement('a')
+                                  link.href = url
+                                  link.download = file.name
+                                  link.click()
+                                  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+                                } catch (error) {
+                                  setFileMessage(error instanceof Error ? `ดาวน์โหลดไม่สำเร็จ: ${error.message}` : 'ดาวน์โหลดไฟล์ไม่สำเร็จ')
+                                }
+                              }}>ดาวน์โหลด</button>
+                            </div>)}
+                          </div> : <small className="completed-task-no-files">ยังไม่มีไฟล์แนบในงานนี้</small>}
+                        </div>
                         <div className="completed-task-actions"><button type="button" className="text-button" onClick={() => startEdit(task)}>แก้ไขงาน ✎</button><button type="button" className="text-button" onClick={() => { navigateTask(task.id, false); navigateTo(task.type === 'งานกลุ่ม' ? 'งานกลุ่ม' : 'งานของฉัน') }}>ดูรายละเอียดงาน →</button></div>
                       </article>)}</div>
                     </div>)}
@@ -2495,7 +2552,31 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
                   if (!blob) { setFileMessage('ไม่พบข้อมูลไฟล์นี้ในเบราว์เซอร์'); return }
                   const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = file.name; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
                 } catch (error) { console.error('ดาวน์โหลดไฟล์ไม่สำเร็จ:', error); setFileMessage('ดาวน์โหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่') }
-              }}>{file.name}</button><small>{file.size >= 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : `${(file.size / 1024).toFixed(0)} KB`}</small>{canEditTask && <button type="button" onClick={async () => {
+              }}>{file.name}</button><button type="button" className="text-button" onClick={async () => {
+                const previewTab = window.open('', '_blank')
+                try {
+                  let blob: Blob | undefined
+                  if (file.storagePath) {
+                    if (!supabase) throw new Error('ยังไม่ได้เชื่อมต่อ Supabase')
+                    const { data, error } = await supabase.storage.from('task-attachments').download(file.storagePath)
+                    if (error) throw error
+                    blob = data || undefined
+                  } else if (file.dataUrl) {
+                    const response = await fetch(file.dataUrl)
+                    blob = await response.blob()
+                  } else {
+                    blob = await getAttachmentBlob(`${task.id}:${file.id}`)
+                  }
+                  if (!blob) throw new Error('ไม่พบไฟล์ กรุณาลองอัปโหลดใหม่')
+                  const url = URL.createObjectURL(blob)
+                  if (previewTab) previewTab.location.href = url
+                  else window.open(url, '_blank', 'noopener,noreferrer')
+                  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+                } catch (error) {
+                  previewTab?.close()
+                  setFileMessage(error instanceof Error ? `เปิดไฟล์ไม่สำเร็จ: ${error.message}` : 'เปิดไฟล์ไม่สำเร็จ')
+                }
+              }}>ดูไฟล์</button><small>{file.size >= 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : `${(file.size / 1024).toFixed(0)} KB`}</small>{canEditTask && <button type="button" onClick={async () => {
                 try {
                   if (file.storagePath) {
                     if (!supabase) throw new Error('ยังไม่ได้เชื่อมต่อ Supabase')

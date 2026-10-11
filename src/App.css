@@ -4041,3 +4041,220 @@ button:focus-visible, a:focus-visible {
  .aevora-auth-card { width:min(100%,390px); padding:22px 20px; }
  .aevora-logo-image { width:min(100%,245px); }
 }
+
+
+
+/* ===== AEVORA TASK PANELS: DISTINCT, EASY-TO-SCAN COLOURED BORDERS =====
+   CSS-only refinement: keeps existing React state, forms, Supabase calls and layout. */
+:root {
+  --task-border-violet: #b99be8;
+  --task-border-blue: #9bc8ef;
+  --task-border-pink: #edb1d0;
+  --task-border-mint: #9fd8c6;
+  --task-border-gold: #e8cd8c;
+  --task-border-lilac: #d3b9ed;
+}
+
+/* Create/edit task form: each field group is clearly separated */
+.task-manager .new-task-form,
+.task-manager .task-edit-form,
+.task-form,
+.detail-edit-form,
+.group-project-form,
+.group-member-form,
+.group-room-create {
+  border: 1.5px solid var(--task-border-violet) !important;
+  border-radius: 15px !important;
+  background: linear-gradient(145deg, #fff 0%, #fcf8ff 100%) !important;
+  box-shadow: 0 3px 12px rgba(118, 81, 168, .07) !important;
+}
+.detail-edit-form > label,
+.task-assignment-fields,
+.task-edit-attachments,
+.group-project-items,
+.group-project-item {
+  border: 1px solid var(--task-border-lilac);
+  border-radius: 11px;
+  background: #fdfaff;
+}
+.detail-edit-form > label,
+.task-assignment-fields,
+.task-edit-attachments,
+.group-project-items {
+  padding: 12px;
+}
+
+/* Task details: give each information card its own border colour */
+.task-detail-page {
+  border: 1.5px solid var(--task-border-violet) !important;
+  background: linear-gradient(150deg, #fff 0%, #fcf9ff 100%) !important;
+}
+.task-detail-heading {
+  padding-bottom: 12px;
+  border-bottom: 2px solid #e5d6f7;
+}
+.task-detail-grid > :nth-child(4n + 1),
+.task-detail-card:nth-child(4n + 1) {
+  border: 1.5px solid var(--task-border-violet) !important;
+}
+.task-detail-grid > :nth-child(4n + 2),
+.task-detail-card:nth-child(4n + 2) {
+  border: 1.5px solid var(--task-border-blue) !important;
+}
+.task-detail-grid > :nth-child(4n + 3),
+.task-detail-card:nth-child(4n + 3) {
+  border: 1.5px solid var(--task-border-pink) !important;
+}
+.task-detail-grid > :nth-child(4n),
+.task-detail-card:nth-child(4n) {
+  border: 1.5px solid var(--task-border-mint) !important;
+}
+.task-description-card {
+  border: 1.5px solid var(--task-border-blue) !important;
+  border-radius: 13px !important;
+  background: #f8fcff !important;
+}
+.subtask-panel {
+  border: 1.5px solid var(--task-border-violet) !important;
+  background: #fcf9ff !important;
+}
+.subtask-list > *,
+.subtask-row {
+  border: 1px solid #d8c5f0 !important;
+  border-radius: 10px;
+  background: #fff !important;
+}
+.task-extra-grid > :nth-child(4n + 1),
+.task-extra-card:nth-child(4n + 1) {
+  border: 1.5px solid var(--task-border-blue) !important;
+  background: #fbfdff !important;
+}
+.task-extra-grid > :nth-child(4n + 2),
+.task-extra-card:nth-child(4n + 2) {
+  border: 1.5px solid var(--task-border-pink) !important;
+  background: #fffafd !important;
+}
+.task-extra-grid > :nth-child(4n + 3),
+.task-extra-card:nth-child(4n + 3) {
+  border: 1.5px solid var(--task-border-mint) !important;
+  background: #f9fffc !important;
+}
+.task-extra-grid > :nth-child(4n),
+.task-extra-card:nth-child(4n) {
+  border: 1.5px solid var(--task-border-gold) !important;
+  background: #fffdf7 !important;
+}
+
+/* Attachments, comments, help requests and work history */
+.task-edit-attachments,
+.task-attachment-list,
+.task-file-picker {
+  border: 1.5px solid var(--task-border-blue) !important;
+  border-radius: 12px !important;
+  background: #f8fcff !important;
+}
+.task-comment-list .task-comment:nth-child(odd),
+.task-comment {
+  border: 1.5px solid var(--task-border-pink) !important;
+  border-radius: 12px !important;
+  background: #fffafd !important;
+}
+.task-help-form,
+.task-help-list article {
+  border: 1.5px solid var(--task-border-mint) !important;
+  border-radius: 12px !important;
+  background: #f8fffb !important;
+}
+.task-activity-list,
+.task-activity-list > *,
+.task-review-pending {
+  border-color: var(--task-border-gold) !important;
+}
+
+/* Group work: room cards, project/task cards, members and review queue */
+.group-workspace-hub,
+.group-rooms-panel {
+  border: 1.5px solid var(--task-border-violet) !important;
+}
+.group-workspace-room-card,
+.group-room-card,
+.group-overview-hero {
+  border: 1.5px solid var(--task-border-violet) !important;
+  border-radius: 15px !important;
+  background: linear-gradient(145deg, #fff 0%, #fcf8ff 100%) !important;
+}
+.group-overview-section:nth-of-type(odd) {
+  border: 1.5px solid var(--task-border-blue) !important;
+  border-radius: 13px;
+  padding: 14px;
+  background: #fbfdff;
+}
+.group-overview-section:nth-of-type(even) {
+  border: 1.5px solid var(--task-border-pink) !important;
+  border-radius: 13px;
+  padding: 14px;
+  background: #fffafd;
+}
+.group-overview-member,
+.group-member-chip {
+  border: 1px solid var(--task-border-lilac) !important;
+  border-radius: 11px !important;
+  background: #fff !important;
+}
+.group-overview-task,
+.group-overview-project,
+.group-review-queue-item,
+.group-project-item {
+  border: 1.5px solid var(--task-border-mint) !important;
+  border-radius: 12px !important;
+  background: #fbfffd !important;
+}
+.group-review-queue {
+  border: 1.5px solid var(--task-border-gold) !important;
+  border-radius: 13px;
+  padding: 14px;
+  background: #fffdf7;
+}
+
+/* Lists and page headings: improve hierarchy and keep borders visible */
+.task-list {
+  overflow: hidden;
+  border: 1.5px solid var(--task-border-lilac) !important;
+  border-radius: 13px !important;
+  background: #fff;
+}
+.task-row {
+  border-bottom: 1px solid #e6d9f3 !important;
+}
+.task-row:last-child { border-bottom: 0 !important; }
+.task-section-title,
+.task-project-heading,
+.group-overview-section-heading,
+.group-project-step-heading {
+  color: #392552;
+}
+.task-section-title h2,
+.task-section-title h3,
+.task-project-heading h2,
+.group-overview-section-heading h3 {
+  font-weight: 750 !important;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.task-inline-message {
+  border: 1px solid var(--task-border-gold) !important;
+  border-radius: 10px !important;
+  background: #fffdf6 !important;
+}
+
+@media (max-width: 640px) {
+  .detail-edit-form > label,
+  .task-assignment-fields,
+  .task-edit-attachments,
+  .group-project-items,
+  .group-overview-section:nth-of-type(odd),
+  .group-overview-section:nth-of-type(even),
+  .group-review-queue {
+    padding: 10px;
+  }
+}

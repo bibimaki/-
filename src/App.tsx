@@ -238,6 +238,7 @@ function getTaskProgress(task: Task) {
 }
 
 function App() {
+  const [completedFileMessage, setCompletedFileMessage] = useState('')
   const [authSession, setAuthSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
 
@@ -2181,6 +2182,7 @@ function App() {
                 <div><h2>✓ งานที่เสร็จแล้ว</h2><p className="muted">แยกตามประเภทงานและจัดกลุ่มตามวิชาหรือโปรเจกต์ เพื่อให้ค้นหาง่ายขึ้น</p></div>
                 <span className="gamification-level">{completedTasks.length} งาน</span>
               </div>
+              {completedFileMessage && <p className="task-inline-message" role="status">{completedFileMessage}</p>}
               {completedTasks.length === 0 ? <div className="empty-tasks" style={{padding:28,textAlign:'center'}}><div style={{fontSize:36,marginBottom:8}}>🌱</div><strong>ยังไม่มีงานที่เสร็จแล้ว</strong><p>งานกลุ่มจะแสดงที่นี่เมื่อทุกงานในห้องเสร็จครบทั้งหมด</p><button type="button" className="text-button" onClick={() => navigateTo('งานของฉัน')}>ไปที่งานของฉัน →</button></div> :
                 <div className="completed-categories">
                   {categories.map(category => category.tasks.length > 0 && <section key={category.type} className={`completed-category ${category.className}`}>
@@ -2221,7 +2223,7 @@ function App() {
                                   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
                                 } catch (error) {
                                   previewTab?.close()
-                                  setFileMessage(error instanceof Error ? `เปิดไฟล์ไม่สำเร็จ: ${error.message}` : 'เปิดไฟล์ไม่สำเร็จ')
+                                  setCompletedFileMessage(error instanceof Error ? `เปิดไฟล์ไม่สำเร็จ: ${error.message}` : 'เปิดไฟล์ไม่สำเร็จ')
                                 }
                               }}>ดูไฟล์</button>
                               <button type="button" className="text-button" onClick={async () => {
@@ -2246,7 +2248,7 @@ function App() {
                                   link.click()
                                   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
                                 } catch (error) {
-                                  setFileMessage(error instanceof Error ? `ดาวน์โหลดไม่สำเร็จ: ${error.message}` : 'ดาวน์โหลดไฟล์ไม่สำเร็จ')
+                                  setCompletedFileMessage(error instanceof Error ? `ดาวน์โหลดไม่สำเร็จ: ${error.message}` : 'ดาวน์โหลดไฟล์ไม่สำเร็จ')
                                 }
                               }}>ดาวน์โหลด</button>
                             </div>)}

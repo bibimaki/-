@@ -129,6 +129,9 @@ type Task = {
 
   dueDate?: string
   description?: string
+  projectDescription?: string
+  projectDueDate?: string
+  projectDue?: string
   subtasks?: Subtask[]
   groupRoomId?: number
   assignedTo?: string
@@ -327,6 +330,7 @@ function App() {
   const [groupProjectDescription, setGroupProjectDescription] = useState(() => readSessionDraft('groupProjectDescription'))
   const [groupProjectDueDate, setGroupProjectDueDate] = useState(() => readSessionDraft('groupProjectDueDate'))
   const [groupProjectItems, setGroupProjectItems] = useState<{ title: string; assignedTo: string }[]>(() => { try { return JSON.parse(readSessionDraft('groupProjectItems', '[{\"title\":\"\",\"assignedTo\":\"\"}]')) as { title: string; assignedTo: string }[] } catch { return [{ title: '', assignedTo: '' }] } })
+  const [editingProjectDetails, setEditingProjectDetails] = useState<{ roomId: number; oldTitle: string; title: string; description: string; dueDate: string } | null>(null)
   const [memberDisplayNames, setMemberDisplayNames] = useState<Record<string, string>>({})
   useEffect(() => {
     const inviteCode = new URLSearchParams(window.location.search).get('join')
@@ -680,6 +684,9 @@ function App() {
       due: groupProjectDueDate ? new Date(`${groupProjectDueDate}T23:59:00`).toLocaleDateString('th-TH') : 'ไม่กำหนดวันส่ง',
       dueDate: groupProjectDueDate,
       description: groupProjectDescription.trim(),
+      projectDescription: groupProjectDescription.trim(),
+      projectDueDate: groupProjectDueDate || undefined,
+      projectDue: groupProjectDueDate ? new Date(`${groupProjectDueDate}T23:59:00`).toLocaleDateString('th-TH') : 'ไม่กำหนดวันส่ง',
       groupRoomId: room.id,
       assignedTo: item.assignedTo,
       createdBy: userId,
@@ -705,6 +712,9 @@ function App() {
             due: task.due,
             dueDate: task.dueDate,
             description: task.description,
+            projectDescription: task.projectDescription,
+            projectDueDate: task.projectDueDate,
+            projectDue: task.projectDue,
             assignedTo: task.assignedTo,
             createdBy: task.createdBy || userId,
             progress: task.progress,
@@ -2076,7 +2086,14 @@ function App() {
                   groups.get(projectTitle)!.push(task)
                   return groups
                 }, new Map<string, Task[]>()).entries()).map(([projectTitle, projectTasks]) => <section className="group-overview-project" key={projectTitle} style={{ marginBottom: 18, padding: 16, border: '1px solid rgba(126, 100, 160, .18)', borderRadius: 18, background: 'rgba(255, 255, 255, .62)' }}>
-                  <header className="group-overview-project-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid rgba(126, 100, 160, .16)' }}><div><span className="eyebrow">โปรเจกต์หลัก</span><h4 style={{ margin: '3px 0', fontSize: 18 }}>{projectTitle}</h4><p>{projectTasks.length} งานย่อย · กำหนดส่ง {projectTasks[0]?.due || 'ไม่ระบุ'}</p></div><strong>{projectTasks.filter(task => task.done).length}/{projectTasks.length} เสร็จแล้ว</strong></header>
+                  <header className="group-overview-project-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid rgba(126, 100, 160, .16)' }}><div><span className="eyebrow">โปรเจกต์หลัก</span><h4 style={{ margin: '3px 0', fontSize: 18 }}>{projectTitle}</h4><p>{projectTasks.length} งานย่อย · กำหนดส่ง {projectTasks[0]?.projectDue || projectTasks[0]?.due || 'ไม่ระบุ'}</p></div><div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><strong>{projectTasks.filter(task => task.done).length}/{projectTasks.length} เสร็จแล้ว</strong>{activeRoom.ownerId === authSession?.user?.id && <button type="button" className="text-button" onClick={() => setEditingProjectDetails({ roomId: activeRoom.id, oldTitle: projectTitle, title: projectTitle, description: projectTasks.find(task => task.projectDescription !== undefined)?.projectDescription ?? projectTasks.find(task => task.description?.trim())?.description ?? '', dueDate: projectTasks.find(task => task.projectDueDate !== undefined)?.projectDueDate ?? projectTasks.find(task => task.dueDate)?.dueDate ?? '' })}>✎ แก้ไขโปรเจกต์หลัก</button>}</div></header>
+                  {editingProjectDetails?.roomId === activeRoom.id && editingProjectDetails.oldTitle === projectTitle && <form className="group-project-form" onSubmit={event => { event.preventDefault(); if (activeRoom.ownerId !== authSession?.user?.id) return; const nextTitle = editingProjectDetails.title.trim(); if (!nextTitle) { setGroupRoomMessage('กรุณาระบุชื่อโปรเจกต์'); return; } const nextDue = editingProjectDetails.dueDate ? new Date(`${editingProjectDetails.dueDate}T23:59:00`).toLocaleDateString('th-TH') : 'ไม่กำหนดวันส่ง'; setTasks(current => current.map(task => task.type === 'งานกลุ่ม' && task.groupRoomId === activeRoom.id && (task.subject?.trim() || 'โปรเจกต์ทั่วไป') === editingProjectDetails.oldTitle ? { ...task, subject: nextTitle, projectDescription: editingProjectDetails.description.trim(), projectDueDate: editingProjectDetails.dueDate || undefined, projectDue: nextDue } : task)); setEditingProjectDetails(null); setGroupRoomMessage(`บันทึกรายละเอียดโปรเจกต์ “${nextTitle}” แล้ว`) }}>
+                    <div className="group-project-step-heading"><h3>แก้ไขรายละเอียดโปรเจกต์หลัก</h3><p>แก้ไขเฉพาะข้อมูลโปรเจกต์หลัก ระบบจะไม่เปิดให้แก้ไขรายละเอียดของงานย่อยจากส่วนนี้</p></div>
+                    <label>ชื่อโปรเจกต์หลัก<input value={editingProjectDetails.title} onChange={event => setEditingProjectDetails(current => current ? { ...current, title: event.target.value } : current)} required maxLength={120} /></label>
+                    <label>รายละเอียดโปรเจกต์หลัก<textarea value={editingProjectDetails.description} onChange={event => setEditingProjectDetails(current => current ? { ...current, description: event.target.value } : current)} rows={3} placeholder="เป้าหมายหรือรายละเอียดโดยรวมของโปรเจกต์" /></label>
+                    <label>กำหนดส่งโปรเจกต์หลัก<input type="date" value={editingProjectDetails.dueDate} onChange={event => setEditingProjectDetails(current => current ? { ...current, dueDate: event.target.value } : current)} /></label>
+                    <div className="group-project-form-actions"><button type="button" className="text-button" onClick={() => setEditingProjectDetails(null)}>ยกเลิก</button><button type="submit">บันทึกโปรเจกต์</button></div>
+                  </form>}
                   <div className="group-overview-task-list">{projectTasks.map(task => <article className="group-overview-task" key={task.id}><div className={`group-overview-task-status ${task.done ? 'is-done' : getTaskProgress(task) > 0 ? 'is-progress' : ''}`}>{task.done ? '✓' : getTaskProgress(task) > 0 ? '◷' : '○'}</div><div className="group-overview-task-main"><strong>{task.title}</strong><small>ผู้รับผิดชอบ: {(task.assignedTo && (memberDisplayNames[task.assignedTo] || (task.assignedTo === authSession?.user?.id ? profileName : task.assignedTo))) || 'ยังไม่ได้มอบหมาย'}</small><div className="group-overview-track"><div style={{width: `${getTaskProgress(task)}%`}} /></div></div><div className="group-overview-task-meta"><b>{getTaskProgress(task)}%</b><span>{task.done ? 'ตรวจผ่าน · 100%' : task.submittedForReview ? 'รอโฮสต์ตรวจ' : getTaskProgress(task) > 0 ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span><button type="button" onClick={() => { navigateTask(task.id, false); navigateTo('งานของฉัน') }}>ดูงาน</button>{!task.done && activeRoom.ownerId === authSession?.user?.id && <button type="button" onClick={() => void finishGroupTask(task, activeRoom)}>✓ ทำงานเสร็จ</button>}</div></article>)}</div>
                 </section>)}</div> : <div className="group-room-empty"><span>✦</span><strong>ยังไม่มีงานในห้องนี้</strong><p>เมื่อสร้างหรือแจกจ่ายงาน งานจะปรากฏในภาพรวมกลุ่มนี้</p>{activeRoom.ownerId === authSession?.user?.id && <button type="button" onClick={() => { setTaskRoomId(activeRoom.id); setType('งานกลุ่ม'); setTitle(''); setSubject(''); setDescription(''); setAssignedTo(authSession.user.id); setDue(''); setEditingId(null); navigateTo('งานของฉัน'); navigateTaskForm(true, null) }}>สร้างงานแรกของกลุ่ม</button>}</div>}
               </section>

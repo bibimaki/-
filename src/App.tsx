@@ -1483,17 +1483,54 @@ function App() {
   function toggleTask(id: number) {
     const target = tasks.find(task => task.id === id)
     if (!target) return
+    const userId = authSession?.user?.id
     if (target.type === 'งานกลุ่ม') {
       const room = roomForTask(target)
-      if (!room || room.ownerId !== authSession?.user?.id) {
-        setGroupRoomMessage('งานกลุ่มจบงานได้เฉพาะโฮสต์เท่านั้น ผู้รับผิดชอบสามารถอัปเดตงานย่อยและความคืบหน้าได้')
+      if (!room || !userId) {
+        setGroupRoomMessage('ไม่พบห้องงานหรือบัญชีผู้ใช้ กรุณาโหลดห้องใหม่แล้วลองอีกครั้ง')
+        return
+      }
+      const isHost = room.ownerId === userId
+      const isAssignee = target.assignedTo === userId
+      // Members mark their own work as submitted; only the host can approve completion.
+      if (!isHost) {
+        if (!isAssignee) {
+          setGroupRoomMessage('เฉพาะผู้รับผิดชอบงานนี้เท่านั้นที่ส่งงานให้โฮสต์ตรวจได้')
+          return
+        }
+        if (target.done) {
+          setGroupRoomMessage('งานนี้ตรวจผ่านแล้ว หากต้องแก้ไขให้ติดต่อโฮสต์เพื่อเปิดงานอีกครั้ง')
+          return
+        }
+        if (target.submittedForReview) {
+          setGroupRoomMessage('ส่งงานให้โฮสต์ตรวจแล้ว กำลังรอการตรวจ สามารถเพิ่มไฟล์และคอมเมนต์ต่อได้')
+          return
+        }
+        const now = new Date().toISOString()
+        setTasks(current => current.map(task => task.id === id ? {
+          ...task,
+          submittedForReview: true,
+          submittedAt: now,
+          progress: Math.min(99, Math.max(task.progress || 0, task.subtasks?.length ? Math.round(task.subtasks.filter(item => item.done).length / task.subtasks.length * 100) : 95)),
+          activity: [...(task.activity || []), { id: Date.now(), text: 'ส่งงานให้โฮสต์ตรวจ', createdAt: now }],
+        } : task))
+        setGroupRoomMessage(`ส่งงาน “${target.title}” ให้โฮสต์ตรวจแล้ว สามารถเพิ่มไฟล์หรือคอมเมนต์ได้ระหว่างรอตรวจ`)
+        void notifyTelegram(room.dbId, 'submitted_for_review', `งาน “${target.title}” ส่งให้โฮสต์ตรวจแล้ว`)
         return
       }
       if (!target.done && !target.submittedForReview) {
-        setGroupRoomMessage('งานกลุ่มจะสำเร็จ 100% ได้หลังสมาชิกส่งงานให้ตรวจ และโฮสต์กดตรวจผ่านเท่านั้น')
+        setGroupRoomMessage('สมาชิกต้องส่งงานให้ตรวจ ก่อนโฮสต์จึงจะอนุมัติให้งานสำเร็จ 100% ได้')
         return
       }
-    } else if (!canManageTask(target)) {
+      if (!target.done) {
+        void finishGroupTask(target, room)
+        return
+      }
+      // Host can reopen a completed task if it needs further work.
+      setTasks(current => current.map(task => task.id === id ? { ...task, done: false, submittedForReview: false, completedAt: undefined, progress: Math.min(task.progress || 0, 99) } : task))
+      return
+    }
+    if (!canManageTask(target)) {
       setGroupRoomMessage('คุณเปลี่ยนสถานะงานนี้ไม่ได้')
       return
     }
@@ -1961,7 +1998,7 @@ function App() {
             return groups
           }, new Map<string, Task[]>()).entries()).map(([heading, headingTasks], projectIndex) => { const projectColors = [{ bg: '#F5F0FF', border: '#D9C9FF', accent: '#7351B8' }, { bg: '#ECFAF5', border: '#B8E8D5', accent: '#247B61' }, { bg: '#FFF5E9', border: '#F2D4AD', accent: '#A96522' }, { bg: '#EEF6FF', border: '#C8DFFF', accent: '#356FAF' }, { bg: '#FFF0F6', border: '#F1C7DA', accent: '#AC4E79' }]; const projectColor = projectColors[projectIndex % projectColors.length]; return <section className="task-project-group" key={heading} style={{ marginBottom: 18, padding: 16, border: `1px solid ${projectColor.border}`, borderLeft: `5px solid ${projectColor.accent}`, borderRadius: 18, background: projectColor.bg }}>
             <button type="button" className="task-project-heading" aria-expanded={expandedProjects.includes(heading)} onClick={() => setExpandedProjects(current => current.includes(heading) ? current.filter(item => item !== heading) : [...current, heading])} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: expandedProjects.includes(heading) ? 10 : 0, padding: '0 0 10px', border: 0, borderBottom: expandedProjects.includes(heading) ? '1px solid rgba(126, 100, 160, .16)' : 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', color: 'inherit' }}><div><span style={{ display: 'block', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', opacity: .65 }}>โปรเจกต์</span><h3 style={{ margin: '3px 0 0', fontSize: 17 }}>{heading}</h3><small style={{ display: 'block', marginTop: 5, opacity: .72 }}>{headingTasks.filter(task => !task.done).length ? `มีงานที่ต้องทำ ${headingTasks.filter(task => !task.done).length} งาน` : 'งานทั้งหมดเสร็จแล้ว'} · {headingTasks.length} งานย่อย</small></div><span style={{ whiteSpace: 'nowrap', fontSize: 13, opacity: .8 }}>{expandedProjects.includes(heading) ? 'ซ่อนงานย่อย ↑' : 'ดูงานย่อย →'}</span></button>
-            {expandedProjects.includes(heading) && <div className="task-project-items">{headingTasks.map(task => <div className={`task-row ${task.done ? 'task-done' : ''}`} key={task.id}><button className={`task-check ${task.done ? 'checked' : ''}`} onClick={() => toggleTask(task.id)} disabled={task.type === 'งานกลุ่ม' ? roomForTask(task)?.ownerId !== authSession?.user?.id : !canManageTask(task)} aria-label={task.done ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จแล้ว'} title={task.type === 'งานกลุ่ม' ? 'เฉพาะโฮสต์เท่านั้นที่จบงานกลุ่มได้' : (!canManageTask(task) ? 'แก้ไขงานนี้ไม่ได้' : undefined)}>{task.done ? '✓' : ''}</button><div className="task-info"><button type="button" className="task-title-link" onClick={() => navigateTask(task.id, false)}>{task.title}</button>{(task.groupRoomId || task.assignedTo) && <small className="task-assignment-meta">{task.groupRoomId ? groupRooms.find(room => room.id === task.groupRoomId)?.name : ''}{task.groupRoomId && task.assignedTo ? ' · ' : ''}{task.assignedTo ? `ผู้รับผิดชอบ: ${memberDisplayNames[task.assignedTo] || (task.assignedTo === authSession?.user?.id ? profileName : task.assignedTo)}` : ''}</small>}</div><span className={`task-type ${task.type === 'งานกลุ่ม' ? 'group-type' : ''}`}><img className="task-type-art" src={task.type === 'งานกลุ่ม' ? '/images/aevora-work-icons/group-work.png' : '/images/aevora-work-icons/solo.png'} alt="" />{task.type}</span><span className="task-due">◷ {task.due}</span><div className="task-progress"><div className="mini-track"><div style={{ width: `${getTaskProgress(task)}%` }}/></div><small>{getTaskProgress(task)}%</small></div><div className="task-actions">{canManageTask(task) ? <><button type="button" onClick={() => startEdit(task)} aria-label={`แก้ไข ${task.title}`}>แก้ไข</button><button type="button" onClick={() => deleteTask(task)} aria-label={`ลบ ${task.title}`}>ลบ</button></> : <button type="button" onClick={() => navigateTask(task.id, false)}>ดูงาน</button>}</div></div>)}</div>}
+            {expandedProjects.includes(heading) && <div className="task-project-items">{headingTasks.map(task => <div className={`task-row ${task.done ? 'task-done' : ''}`} key={task.id}><button className={`task-check ${task.done ? 'checked' : ''}`} onClick={() => toggleTask(task.id)} disabled={task.type === 'งานกลุ่ม' ? !(roomForTask(task)?.ownerId === authSession?.user?.id || task.assignedTo === authSession?.user?.id) || Boolean(task.submittedForReview && !task.done && roomForTask(task)?.ownerId !== authSession?.user?.id) : !canManageTask(task)} aria-label={task.type === 'งานกลุ่ม' && roomForTask(task)?.ownerId !== authSession?.user?.id ? 'ส่งงานให้โฮสต์ตรวจ' : task.done ? 'เปิดงานอีกครั้ง' : 'ทำเครื่องหมายว่าเสร็จแล้ว'} title={task.type === 'งานกลุ่ม' ? (roomForTask(task)?.ownerId === authSession?.user?.id ? 'โฮสต์ตรวจผ่านงานที่สมาชิกส่งมาแล้วได้' : task.submittedForReview ? 'ส่งตรวจแล้ว กำลังรอโฮสต์' : 'กดเพื่อส่งงานให้โฮสต์ตรวจ') : (!canManageTask(task) ? 'แก้ไขงานนี้ไม่ได้' : undefined)}>{task.done ? '✓' : ''}</button><div className="task-info"><button type="button" className="task-title-link" onClick={() => navigateTask(task.id, false)}>{task.title}</button>{(task.groupRoomId || task.assignedTo) && <small className="task-assignment-meta">{task.groupRoomId ? groupRooms.find(room => room.id === task.groupRoomId)?.name : ''}{task.groupRoomId && task.assignedTo ? ' · ' : ''}{task.assignedTo ? `ผู้รับผิดชอบ: ${memberDisplayNames[task.assignedTo] || (task.assignedTo === authSession?.user?.id ? profileName : task.assignedTo)}` : ''}</small>}</div><span className={`task-type ${task.type === 'งานกลุ่ม' ? 'group-type' : ''}`}><img className="task-type-art" src={task.type === 'งานกลุ่ม' ? '/images/aevora-work-icons/group-work.png' : '/images/aevora-work-icons/solo.png'} alt="" />{task.type}</span><span className="task-due">◷ {task.due}</span><div className="task-progress"><div className="mini-track"><div style={{ width: `${getTaskProgress(task)}%` }}/></div><small>{getTaskProgress(task)}%</small></div><div className="task-actions">{canManageTask(task) ? <>{(task.type !== 'งานกลุ่ม' || roomForTask(task)?.ownerId === authSession?.user?.id) ? <button type="button" onClick={() => startEdit(task)} aria-label={`แก้ไข ${task.title}`}>แก้ไข</button> : <button type="button" onClick={() => navigateTask(task.id, false)} aria-label={`เปิดไฟล์และเครื่องมือของ ${task.title}`}>เปิดงาน</button>}{(task.type !== 'งานกลุ่ม' || roomForTask(task)?.ownerId === authSession?.user?.id) && <button type="button" onClick={() => deleteTask(task)} aria-label={`ลบ ${task.title}`}>ลบ</button>}</> : <button type="button" onClick={() => navigateTask(task.id, false)}>ดูงาน</button>}</div></div>)}</div>}
           </section> }) : <p className="empty-tasks">ไม่พบงานที่ตรงกับการค้นหา ลองเปลี่ยนคำค้นหาหรือตัวกรองนะ</p>}</div><div className="task-footer">เสร็จแล้ว {tasks.filter(task => task.done).length} จาก {tasks.length} งาน ✦</div></section>}
 
         {activeNav === 'งานของฉัน' && (selectedTask || (showForm && editingId === null)) && (
@@ -1996,7 +2033,16 @@ function App() {
             deleteTask={deleteTask}
             toggleTask={toggleTask}
             onBack={() => {
-              // Keep the draft in component state/sessionStorage; go back in the SPA history when possible.
+              // Group task tools always return to that room's overview, not the global task list.
+              if (selectedTask?.type === 'งานกลุ่ม' && selectedTask.groupRoomId !== undefined) {
+                setActiveNav('เชิญเพื่อน')
+                setSelectedWorkspaceRoomId(selectedTask.groupRoomId)
+                setSelectedTaskId(null)
+                setShowForm(false)
+                setEditingId(null)
+                window.history.pushState({ ...getNavigationSnapshot(), aevoraNav: 'เชิญเพื่อน', selectedWorkspaceRoomId: selectedTask.groupRoomId, selectedTaskId: null, showForm: false, editingId: null }, '', window.location.href)
+                return
+              }
               if (window.history.state?.aevoraNav) window.history.back()
               else {
                 setShowForm(false)
@@ -2392,8 +2438,8 @@ function TaskDetailPanel(props: TaskDetailPanelProps) {
             </section>
           </div>
           {canEditTask && <div className="task-detail-actions">
-            <button type="button" className="detail-primary-button" onClick={() => startEdit(task)}>✎ แก้ไขรายละเอียด</button>
-            <button type="button" className="detail-success-button" onClick={() => toggleTask(task.id)}>{task.done ? '↶ ทำต่อ' : '✓ ทำเครื่องหมายว่าเสร็จ'}</button>
+            {(task.type !== 'งานกลุ่ม' || roomForTask(task)?.ownerId === authSession?.user?.id) && <button type="button" className="detail-primary-button" onClick={() => startEdit(task)}>✎ แก้ไขรายละเอียด</button>}
+            {task.type === 'งานกลุ่ม' && task.assignedTo !== authSession?.user?.id && roomForTask(task)?.ownerId !== authSession?.user?.id ? null : <button type="button" className="detail-success-button" onClick={() => toggleTask(task.id)}>{task.type === 'งานกลุ่ม' ? (roomForTask(task)?.ownerId === authSession?.user?.id ? (task.done ? '↶ เปิดงานอีกครั้ง' : '✓ ตรวจผ่านงาน') : task.submittedForReview ? '⏳ ส่งตรวจแล้ว' : '📨 ส่งงานให้โฮสต์ตรวจ') : task.done ? '↶ ทำต่อ' : '✓ ทำเครื่องหมายว่าเสร็จ'}</button>}
             <button type="button" className="detail-delete-button" onClick={() => deleteTask(task)}>ลบงาน</button>
           </div>}
         </>

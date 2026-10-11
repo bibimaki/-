@@ -85,7 +85,18 @@ ${message}`)
     if (subsError) return json(res, 500, { error: 'อ่านรายชื่อผู้สมัครรับแจ้งเตือนไม่สำเร็จ' })
     // A Telegram chat may be linked to more than one Aevora account; send once per chat.
     const recipients = [...new Set((subscriptions || []).map(item => String(item.chat_id || '').trim()).filter(Boolean))]
-    const results = await Promise.allSettled(recipients.map(chatId => sendMessage(chatId, `🌸 Aevora · ${room.name}\n${message}`)))
+    const friendlyMessage = message
+      .replace(/\\n/g, '\n')
+      .replace(/^ผู้กระทำ:\s*/gm, 'โดย ')
+      .replace(/^ชื่อห้อง:\s*/gm, 'ห้อง: ')
+      .replace(/^รหัสเข้าห้อง:\s*/gm, 'รหัสเข้าห้อง: ')
+      .replace(/^รหัสห้อง:\s*/gm, 'รหัสเข้าห้อง: ')
+      .replace(/^สมาชิกที่เข้าร่วม:\s*/gm, 'สมาชิกใหม่: ')
+      .replace(/^เวลาแจ้ง:\s*/gm, 'แจ้งเมื่อ: ')
+      .replace(/^เวลา:\s*/gm, 'เมื่อ: ')
+      .replace(/^ประเภท:\s*/gm, 'ประเภทงาน: ')
+      .trim()
+    const results = await Promise.allSettled(recipients.map(chatId => sendMessage(chatId, `🌸 ${room.name}\n\n${friendlyMessage}`)))
     const failed = results.filter(item => item.status === 'rejected').length
     return json(res, 200, { ok: true, sent: results.length - failed, failed })
   }

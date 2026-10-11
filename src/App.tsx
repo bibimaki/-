@@ -343,6 +343,10 @@ function App() {
   const [profileName, setProfileName] = useState(() => localStorage.getItem('aevora_profile_name') || 'แบม')
   const [profileEmoji, setProfileEmoji] = useState(() => localStorage.getItem('aevora_profile_emoji') || '🌷')
   const [profileBio, setProfileBio] = useState(() => localStorage.getItem('aevora_profile_bio') || 'ค่อย ๆ เติบโตไปทีละก้าว ✨')
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState('')
+  const [memberAvatarUrls, setMemberAvatarUrls] = useState<Record<string, string>>({})
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const [avatarMessage, setAvatarMessage] = useState('')
   const [backupMessage, setBackupMessage] = useState('')
   const [telegramChatId, setTelegramChatId] = useState(() => localStorage.getItem('aevora_telegram_chat_id') || '')
   const [telegramOptIn, setTelegramOptIn] = useState(() => localStorage.getItem('aevora_telegram_opt_in') === 'true')
@@ -458,9 +462,15 @@ function App() {
       if (authSession?.user?.id) names[authSession.user.id] = profileName || String(authSession.user.user_metadata?.display_name || 'คุณ')
       if (supabase && ids.length) {
         try {
-          const { data, error } = await supabase.from('user_profiles').select('user_id,display_name').in('user_id', ids)
+          const { data, error } = await supabase.from('user_profiles').select('user_id,display_name,avatar_url').in('user_id', ids)
           if (error) throw error
-          for (const row of data || []) if (row.display_name) names[row.user_id] = row.display_name
+          const avatars: Record<string, string> = {}
+          for (const row of data || []) {
+            if (row.display_name) names[row.user_id] = row.display_name
+            if (row.avatar_url) avatars[row.user_id] = row.avatar_url
+          }
+          setMemberAvatarUrls(avatars)
+          if (authSession?.user?.id) setProfileAvatarUrl(avatars[authSession.user.id] || '')
         } catch (error) {
           console.warn('ไม่สามารถอ่านชื่อโปรไฟล์สมาชิกบางคนได้:', error)
         }
@@ -470,6 +480,19 @@ function App() {
     void loadMemberNames()
     return () => { cancelled = true }
   }, [groupRooms, authSession?.user?.id, profileName])
+
+  // Keep shared member avatars fresh when another room member changes their profile.
+  useEffect(() => {
+    if (!supabase || !authSession?.user?.id) return
+    const channel = supabase.channel(`aevora-user-profiles-${authSession.user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_profiles' }, payload => {
+        const row = (payload.new && Object.keys(payload.new).length ? payload.new : null) as Record<string, unknown> | null
+        if (!row || typeof row.user_id !== 'string') return
+        if (typeof row.display_name === 'string') setMemberDisplayNames(current => ({ ...current, [row.user_id as string]: row.display_name as string }))
+        if (typeof row.avatar_url === 'string' && row.avatar_url) setMemberAvatarUrls(current => ({ ...current, [row.user_id as string]: row.avatar_url as string }))
+      }).subscribe()
+    return () => { void supabase.removeChannel(channel) }
+  }, [authSession?.user?.id])
 
   // Publish only the account's chosen display name to the member-visible profile table.
   useEffect(() => {
@@ -483,6 +506,43 @@ function App() {
       if (error) console.warn('บันทึกชื่อแสดงผลสมาชิกไม่สำเร็จ:', error.message)
     })
   }, [authSession?.user?.id, cloudReady, profileName])
+
+  async function uploadProfileAvatar(file?: File) {
+    if (!file) return
+    if (!supabase || !authSession?.user?.id) {
+      setAvatarMessage('กรุณาเข้าสู่ระบบก่อนอัปโหลดรูปโปรไฟล์')
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      setAvatarMessage('กรุณาเลือกไฟล์รูปภาพเท่านั้น')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarMessage('รูปภาพต้องมีขนาดไม่เกิน 5 MB')
+      return
+    }
+    setAvatarBusy(true)
+    setAvatarMessage('กำลังอัปโหลดรูปโปรไฟล์…')
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = `${authSession.user.id}/avatar-${Date.now()}.${ext}`
+      const { error: uploadError } = await supabase.storage.from('profile-avatars').upload(path, file, { upsert: true, contentType: file.type })
+      if (uploadError) throw uploadError
+      const { data: urlData } = supabase.storage.from('profile-avatars').getPublicUrl(path)
+      const avatarUrl = urlData.publicUrl
+      const { error: profileError } = await supabase.from('user_profiles').upsert({
+        user_id: authSession.user.id, display_name: (profileName || 'สมาชิก').trim().slice(0, 32),
+        avatar_url: avatarUrl, updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' })
+      if (profileError) throw profileError
+      setProfileAvatarUrl(avatarUrl)
+      setMemberAvatarUrls(current => ({ ...current, [authSession.user.id]: avatarUrl }))
+      setAvatarMessage('เปลี่ยนรูปโปรไฟล์แล้ว และบันทึกให้สมาชิกคนอื่นเห็นเรียบร้อย ✨')
+    } catch (error) {
+      console.error('อัปโหลดรูปโปรไฟล์ไม่สำเร็จ:', error)
+      setAvatarMessage(`อัปโหลดไม่สำเร็จ: ${error instanceof Error ? error.message : 'กรุณาตรวจสอบการตั้งค่า Supabase'}`)
+    } finally { setAvatarBusy(false) }
+  }
 
   async function leaveGroupRoom(room: GroupRoom) {
     if (!supabase || !authSession?.user?.id) return
@@ -929,7 +989,7 @@ function App() {
     if (!cloudReady || !supabase || !authSession?.user?.id) return
     const snapshot = {
       version: 1, tasks, groupRooms,
-      profile: { name: profileName, emoji: profileEmoji, bio: profileBio },
+      profile: { name: profileName, emoji: profileEmoji, bio: profileBio, avatarUrl: profileAvatarUrl },
       character: selectedCharacter, pet: selectedPet, roomTheme: selectedRoomTheme,
       petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, questExpClaims, equippedDecorations,
     }
@@ -942,7 +1002,7 @@ function App() {
       } else setCloudStatus('บันทึกออนไลน์แล้ว')
     }, 700)
     return () => window.clearTimeout(timer)
-  }, [cloudReady, authSession?.user?.id, tasks, groupRooms, profileName, profileEmoji, profileBio, selectedCharacter, selectedPet, selectedRoomTheme, petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, questExpClaims, equippedDecorations])
+  }, [cloudReady, authSession?.user?.id, tasks, groupRooms, profileName, profileEmoji, profileBio, profileAvatarUrl, selectedCharacter, selectedPet, selectedRoomTheme, petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, questExpClaims, equippedDecorations])
 
   useEffect(() => { localStorage.setItem('aevora_character', selectedCharacter) }, [selectedCharacter])
   useEffect(() => { localStorage.setItem('aevora_character_gender', selectedGender) }, [selectedGender])
@@ -1510,7 +1570,7 @@ function App() {
   function exportBackup() {
     const backup = {
       app: 'Aevora', version: 1, exportedAt: new Date().toISOString(),
-      tasks, groupRooms, profile: { name: profileName, emoji: profileEmoji, bio: profileBio },
+      tasks, groupRooms, profile: { name: profileName, emoji: profileEmoji, bio: profileBio, avatarUrl: profileAvatarUrl },
       character: selectedCharacter, pet: selectedPet, roomTheme: selectedRoomTheme,
       petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, questExpClaims, equippedDecorations,
     }
@@ -1589,7 +1649,7 @@ function App() {
 
         <header className="topbar">
 
-          <div className="welcome"><div className="avatar">{profileEmoji}</div><div className="welcome-copy"><div className="welcome-title-wrap"><h1 className="welcome-title">สวัสดี {profileName || 'เพื่อน'}</h1></div><p>{profileBio || 'วันนี้เรามาค่อย ๆ ทำให้สำเร็จกัน'}</p></div></div>
+          <div className="welcome"><div className="avatar" style={{overflow:'hidden'}}>{profileAvatarUrl ? <img src={profileAvatarUrl} alt="รูปโปรไฟล์" style={{width:'100%',height:'100%',objectFit:'cover'}} /> : profileEmoji}</div><div className="welcome-copy"><div className="welcome-title-wrap"><h1 className="welcome-title">สวัสดี {profileName || 'เพื่อน'}</h1></div><p>{profileBio || 'วันนี้เรามาค่อย ๆ ทำให้สำเร็จกัน'}</p></div></div>
 
           <div className="topbar-right"><div className="quote">“ทุกงานเล็ก ๆ คือก้าวไปใกล้ความสำเร็จ”</div><button className="icon-button" aria-label="ค้นหา" onClick={() => { navigateTo('งานของฉัน'); document.getElementById('task-search')?.focus() }}>⌕</button><div className="notification-wrap"><button type="button" className="icon-button notification-button" aria-label="การแจ้งเตือน" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}>♧{dueNotifications.length > 0 && <span className="notification-badge">{dueNotifications.length > 9 ? '9+' : dueNotifications.length}</span>}</button>{notificationsOpen && <div className="notification-popover"><div className="notification-popover-heading"><div><strong>การแจ้งเตือน</strong><small>งานที่ใกล้ถึงกำหนดใน 3 วัน</small></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="ปิดการแจ้งเตือน">×</button></div>{dueNotifications.length === 0 ? <p className="notification-empty">ยังไม่มีงานใกล้ถึงกำหนด ✨</p> : <><p className="notification-summary">{overdueCount > 0 ? `มีงานเลยกำหนด ${overdueCount} งาน` : `มีงานใกล้ถึงกำหนด ${dueNotifications.length} งาน`}</p><div className="notification-list">{dueNotifications.map(task => <button type="button" className="notification-item" key={task.id} onClick={() => { navigateTask(task.id, false); setEditingId(null); navigateTo('งานของฉัน'); setNotificationsOpen(false) }}><span className={`notification-dot ${(task.dueDate || '') < todayKey ? 'overdue' : ''}`}/><span className="notification-item-text"><strong>{task.title}</strong><small>{(task.dueDate || '') < todayKey ? 'เลยกำหนดส่ง' : (task.dueDate || '') === todayKey ? 'ครบกำหนดวันนี้' : `กำหนดส่ง ${new Date(`${task.dueDate}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}`}</small></span><span className="notification-arrow">›</span></button>)}</div></>}</div>}</div><div className={`level-pill ${activeNav === 'หน้าหลัก' ? 'level-pill-home' : 'level-pill-with-rank'}`}>{activeNav !== 'หน้าหลัก' && <img className="profile-rank-icon" src={rankImage} alt={`Rank ${rankTier}`} title={`Rank ${rankTier}`} />}<span className="level-avatar">🌙</span><div><strong>Lv. {level}</strong><small>{expBalance} EXP</small></div></div><span className="aevora-cloud-status" title="สถานะการซิงก์">☁ {cloudStatus}</span><button type="button" className="aevora-logout-button" onClick={async () => { if (!supabase) return; const { error } = await supabase.auth.signOut(); if (error) window.alert(`ออกจากระบบไม่สำเร็จ: ${error.message}`) }}>ออกจากระบบ</button></div>
 
@@ -1663,7 +1723,15 @@ function App() {
         {activeNav === 'คลังไอเทม' && <section className="panel customization-page"><div className="panel-heading"><div><h2>คลังไอเทม</h2><p className="muted">ทำงานให้สำเร็จเพื่อรับไอเทมสะสมและบันทึกประวัติการปลดล็อก</p></div><span className="gamification-level">ได้รับแล้ว {rewardUnlocks.length} / {rewardItems.length}</span></div><div className="reward-progress-summary"><span>🎁</span><div><strong>รางวัลจากงานที่สำเร็จ</strong><p>ตอนนี้ทำสำเร็จแล้ว {completed} งาน ไอเทมใหม่จะได้รับอัตโนมัติเมื่อถึงเป้าหมาย</p></div></div><div className="inventory-grid">{rewardItems.map(item => { const unlocked = rewardUnlocks.some(reward => reward.id === item.id); const unlock = rewardUnlocks.find(reward => reward.id === item.id); return <article className={`inventory-item ${unlocked ? 'available' : 'locked'}`} key={item.id}><span>{item.icon}</span><strong>{item.name}</strong><small>{unlocked ? 'ได้รับแล้ว ✓' : `ทำงานสำเร็จ ${item.goal} งาน`}</small><p>{item.description}</p>{unlock && <time dateTime={unlock.unlockedAt}>ปลดล็อก {new Date(unlock.unlockedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</time>}</article>})}</div><div className="reward-history"><div className="task-extra-heading"><h3>ประวัติการปลดล็อก</h3><span>{rewardUnlocks.length} รายการ</span></div>{rewardUnlocks.length ? <ul>{rewardUnlocks.slice().sort((a,b) => b.unlockedAt.localeCompare(a.unlockedAt)).map(reward => { const item = rewardItems.find(entry => entry.id === reward.id); if (!item) return null; return <li key={reward.id}><span>{item.icon}</span><div><strong>{item.name}</strong><small>{new Date(reward.unlockedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</small></div><b>ได้รับแล้ว</b></li>})}</ul> : <p className="task-extra-empty">ทำงานสำเร็จตามเป้าหมาย แล้วรางวัลแรกจะปรากฏที่นี่ ✨</p>}</div></section>}
         {activeNav === 'ตั้งค่า' && <section className="panel profile-settings-page">
           <div className="panel-heading"><div><h2>โปรไฟล์และข้อมูลของฉัน</h2><p className="muted">ปรับข้อมูลที่แสดงบนหน้า Aevora และสำรองข้อมูลไว้ได้</p></div><span className="gamification-level">Lv. {level}</span></div>
-          <div className="profile-card"><div className="profile-avatar-large">{profileEmoji}</div><div><h3>{profileName || 'เพื่อนของ Aevora'}</h3><p>{profileBio}</p><small>{completed} งานสำเร็จ · {exp} EXP · Streak {streak} วัน</small></div></div>
+          <div className="profile-card"><div className="profile-avatar-large" style={{overflow:'hidden',display:'grid',placeItems:'center'}}>{profileAvatarUrl ? <img src={profileAvatarUrl} alt="รูปโปรไฟล์" style={{width:'100%',height:'100%',objectFit:'cover'}} /> : profileEmoji}</div><div><h3>{profileName || 'เพื่อนของ Aevora'}</h3><p>{profileBio}</p><small>{completed} งานสำเร็จ · {exp} EXP · Streak {streak} วัน</small></div></div>
+          <div className="profile-avatar-upload" style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',margin:'12px 0 18px'}}>
+            <label className="profile-primary-button" style={{display:'inline-flex',alignItems:'center',cursor:avatarBusy?'wait':'pointer',opacity:avatarBusy?0.6:1}}>
+              {avatarBusy ? 'กำลังอัปโหลด…' : 'เลือกรูปโปรไฟล์จากอุปกรณ์'}
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={avatarBusy} onChange={event => { void uploadProfileAvatar(event.currentTarget.files?.[0]); event.currentTarget.value = '' }} style={{display:'none'}} />
+            </label>
+            <small>รูปภาพไม่เกิน 5 MB สมาชิกในห้องจะเห็นรูปนี้ด้วย</small>
+            {avatarMessage && <p role="status" style={{width:'100%',margin:0}}>{avatarMessage}</p>}
+          </div>
           <form className="profile-edit-form" onSubmit={event => { event.preventDefault(); setProfileName(profileName.trim().slice(0, 32) || 'เพื่อน'); setProfileBio(profileBio.trim().slice(0, 100)); setBackupMessage('บันทึกโปรไฟล์แล้ว ✨') }}>
             <label>ชื่อที่ใช้แสดง<input value={profileName} onChange={event => setProfileName(event.target.value)} maxLength={32} placeholder="ใส่ชื่อของคุณ" /></label>
             <label>คำทักทายสั้น ๆ<input value={profileBio} onChange={event => setProfileBio(event.target.value)} maxLength={100} placeholder="เช่น ค่อย ๆ เติบโตไปทีละก้าว" /></label>
@@ -1738,7 +1806,7 @@ function App() {
               <p className="group-room-code">รหัสห้อง <strong>{room.code}</strong><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(room.code); setGroupRoomMessage('คัดลอกรหัสห้องแล้ว') } catch { setGroupRoomMessage(`รหัสห้อง: ${room.code}`) } }}>คัดลอกรหัส</button></p>
               <div className="group-room-invite-action"><button type="button" onClick={() => { navigateTo('เชิญเพื่อน'); navigateWorkspaceRoom(room.id); setGroupRoomMessage('') }}>เข้าสู่ห้องทำงาน →</button></div>
               {room.ownerId !== authSession?.user?.id && <button type="button" className="group-room-delete" disabled={groupRoomBusy} onClick={() => void leaveGroupRoom(room)}>ออกจากกลุ่ม</button>}
-              <div className="group-room-members"><strong>สมาชิกที่เข้าร่วมจริง</strong><div>{room.members.map(member => <span className="group-member-chip" key={`${room.dbId}-${member.userId}`}>👤 {memberDisplayNames[member.userId] || (member.userId === authSession?.user?.id ? profileName : `สมาชิก ${member.userId.slice(0, 6)}`)} {member.role === 'owner' ? '(เจ้าของห้อง)' : ''}</span>)}</div></div>
+              <div className="group-room-members"><strong>สมาชิกที่เข้าร่วมจริง</strong><div>{room.members.map(member => <span className="group-member-chip" key={`${room.dbId}-${member.userId}`}>{memberAvatarUrls[member.userId] ? <img src={memberAvatarUrls[member.userId]} alt="" style={{width:24,height:24,borderRadius:'50%',objectFit:'cover',verticalAlign:'middle',marginRight:6}} /> : '👤'} {memberDisplayNames[member.userId] || (member.userId === authSession?.user?.id ? profileName : `สมาชิก ${member.userId.slice(0, 6)}`)} {member.role === 'owner' ? '(เจ้าของห้อง)' : ''}</span>)}</div></div>
               {room.ownerId === authSession?.user?.id && <button type="button" className="group-room-delete" onClick={async () => {
                 if (!window.confirm(`ต้องการลบห้อง “${room.name}” ใช่ไหม?`)) return
                 if (!supabase) return

@@ -72,7 +72,7 @@ ${message}`)
     const roomId = String(body.roomId || '')
     const message = String(body.message || '').trim()
     const eventType = String(body.eventType || '')
-    const allowedEvents = new Set(['member_joined', 'tasks_assigned', 'work_submitted', 'help_request', 'comment', 'submitted_for_review', 'review_approved'])
+    const allowedEvents = new Set(['member_joined', 'task_created', 'tasks_assigned', 'work_submitted', 'help_request', 'comment', 'submitted_for_review', 'review_approved'])
     if (!roomId || !message || !allowedEvents.has(eventType)) return json(res, 400, { error: 'ข้อมูลการแจ้งเตือนไม่ถูกต้อง' })
     const { data: room, error: roomError } = await db.from('group_rooms').select('id,owner_id,name').eq('id', roomId).maybeSingle()
     if (roomError || !room) return json(res, 404, { error: 'ไม่พบห้องงานกลุ่ม' })
@@ -83,8 +83,9 @@ ${message}`)
     const recipientIds = [...new Set([room.owner_id, ...(members || []).map(item => item.user_id)])]
     const { data: subscriptions, error: subsError } = await db.from('telegram_subscriptions').select('user_id,chat_id').in('user_id', recipientIds).eq('enabled', true)
     if (subsError) return json(res, 500, { error: 'อ่านรายชื่อผู้สมัครรับแจ้งเตือนไม่สำเร็จ' })
-    const recipients = (subscriptions || []).filter(item => item.chat_id)
-    const results = await Promise.allSettled(recipients.map(item => sendMessage(String(item.chat_id), `🌸 Aevora · ${room.name}\n${message}`)))
+    // A Telegram chat may be linked to more than one Aevora account; send once per chat.
+    const recipients = [...new Set((subscriptions || []).map(item => String(item.chat_id || '').trim()).filter(Boolean))]
+    const results = await Promise.allSettled(recipients.map(chatId => sendMessage(chatId, `🌸 Aevora · ${room.name}\n${message}`)))
     const failed = results.filter(item => item.status === 'rejected').length
     return json(res, 200, { ok: true, sent: results.length - failed, failed })
   }

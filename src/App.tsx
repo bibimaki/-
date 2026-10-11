@@ -184,6 +184,14 @@ const rewardItems = [
 ]
 
 type RewardUnlock = { id: string; unlockedAt: string }
+type QuestExpClaim = { id: 'daily' | 'weekly'; date: string; exp: number }
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 type Filter = 'ทั้งหมด' | 'กำลังทำ' | 'เสร็จแล้ว' | 'งานเดี่ยว' | 'งานกลุ่ม'
 
@@ -342,6 +350,15 @@ function App() {
   const [rewardUnlocks, setRewardUnlocks] = useState<RewardUnlock[]>(() => {
     try { return JSON.parse(localStorage.getItem('aevora_reward_unlocks') || '[]') as RewardUnlock[] }
     catch { return [] }
+  })
+  // Quest EXP claims are persisted by date so rerenders/reloads cannot award the same quest twice.
+  const [questExpClaims, setQuestExpClaims] = useState<QuestExpClaim[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('aevora_quest_exp_claims') || '[]')
+      return Array.isArray(parsed) ? parsed.filter((item): item is QuestExpClaim =>
+        item && (item.id === 'daily' || item.id === 'weekly') && typeof item.date === 'string' && typeof item.exp === 'number'
+      ) : []
+    } catch { return [] }
   })
   const [equippedDecorations, setEquippedDecorations] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('aevora_equipped_decorations') || '[]') as string[] }
@@ -880,6 +897,7 @@ function App() {
         setExpSpent(typeof cloud.expSpent === 'number' ? Math.max(0, cloud.expSpent) : 0)
         if (typeof cloud.roomTheme === 'string') setSelectedRoomTheme(cloud.roomTheme)
         if (Array.isArray(cloud.rewardUnlocks)) setRewardUnlocks(cloud.rewardUnlocks as RewardUnlock[])
+        if (Array.isArray(cloud.questExpClaims)) setQuestExpClaims(cloud.questExpClaims as QuestExpClaim[])
         if (Array.isArray(cloud.equippedDecorations)) setEquippedDecorations(cloud.equippedDecorations.filter((id): id is string => typeof id === 'string'))
       } else {
         // A new account starts with no sample tasks. Existing browser-only data remains local
@@ -897,6 +915,7 @@ function App() {
         setExpSpent(0)
         setSelectedRoomTheme('🌙 ห้องแสงจันทร์')
         setRewardUnlocks([])
+        setQuestExpClaims([])
         setEquippedDecorations([])
       }
       setCloudStatus('เชื่อมต่อข้อมูลออนไลน์แล้ว')
@@ -911,7 +930,7 @@ function App() {
       version: 1, tasks, groupRooms,
       profile: { name: profileName, emoji: profileEmoji, bio: profileBio },
       character: selectedCharacter, pet: selectedPet, roomTheme: selectedRoomTheme,
-      petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, equippedDecorations,
+      petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, questExpClaims, equippedDecorations,
     }
     const timer = window.setTimeout(async () => {
       const { error } = await supabase!.from('user_settings')
@@ -922,7 +941,7 @@ function App() {
       } else setCloudStatus('บันทึกออนไลน์แล้ว')
     }, 700)
     return () => window.clearTimeout(timer)
-  }, [cloudReady, authSession?.user?.id, tasks, groupRooms, profileName, profileEmoji, profileBio, selectedCharacter, selectedPet, selectedRoomTheme, petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, equippedDecorations])
+  }, [cloudReady, authSession?.user?.id, tasks, groupRooms, profileName, profileEmoji, profileBio, selectedCharacter, selectedPet, selectedRoomTheme, petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, questExpClaims, equippedDecorations])
 
   useEffect(() => { localStorage.setItem('aevora_character', selectedCharacter) }, [selectedCharacter])
   useEffect(() => { localStorage.setItem('aevora_character_gender', selectedGender) }, [selectedGender])
@@ -1178,7 +1197,9 @@ function App() {
   }
 
   const completed = tasks.filter(task => task.done && (task.type !== 'งานกลุ่ม' || task.assignedTo === authSession?.user?.id)).length
-  const exp = completed * 100
+  const taskExp = completed * 100
+  const questExp = questExpClaims.reduce((sum, claim) => sum + claim.exp, 0)
+  const exp = taskExp + questExp
   const expBalance = Math.max(0, exp - expSpent)
   const level = Math.min(10, Math.floor(exp / 500) + 1)
   const expInLevel = level === 10 ? 500 : exp % 500
@@ -1207,6 +1228,28 @@ function App() {
   if (!completedDates.has(streakDate.toDateString())) streakDate.setDate(streakDate.getDate() - 1)
   while (completedDates.has(streakDate.toDateString())) { streak += 1; streakDate.setDate(streakDate.getDate() - 1) }
   const sunLevel = growthLevel(streak, [2, 4, 7, 14])
+  const todayQuestKey = localDateKey()
+  const dailyQuestClaimed = questExpClaims.some(claim => claim.id === 'daily' && claim.date === todayQuestKey)
+  const weeklyQuestClaimed = questExpClaims.some(claim => claim.id === 'weekly' && claim.date === todayQuestKey)
+
+  // Claim each EXP quest at most once per local calendar day. A new day makes it claimable again.
+  useEffect(() => {
+    if (supabase && authSession?.user?.id && !cloudReady) return
+    const eligible: QuestExpClaim[] = []
+    if (todayCompleted >= 1 && !dailyQuestClaimed) eligible.push({ id: 'daily', date: todayQuestKey, exp: 100 })
+    if (level >= 3 && weekCompleted >= 3 && !weeklyQuestClaimed) eligible.push({ id: 'weekly', date: todayQuestKey, exp: 300 })
+    if (!eligible.length) return
+    setQuestExpClaims(current => {
+      const currentKeys = new Set(current.map(claim => `${claim.id}:${claim.date}`))
+      const additions = eligible.filter(claim => !currentKeys.has(`${claim.id}:${claim.date}`))
+      return additions.length ? [...current, ...additions] : current
+    })
+  }, [todayCompleted, weekCompleted, level, todayQuestKey, dailyQuestClaimed, weeklyQuestClaimed, cloudReady, authSession?.user?.id])
+
+  useEffect(() => {
+    try { localStorage.setItem('aevora_quest_exp_claims', JSON.stringify(questExpClaims)) }
+    catch (error) { console.error('บันทึกประวัติ EXP ภารกิจไม่สำเร็จ:', error) }
+  }, [questExpClaims])
 
   useEffect(() => {
     const existingIds = new Set(rewardUnlocks.map(item => item.id))
@@ -1446,7 +1489,7 @@ function App() {
       app: 'Aevora', version: 1, exportedAt: new Date().toISOString(),
       tasks, groupRooms, profile: { name: profileName, emoji: profileEmoji, bio: profileBio },
       character: selectedCharacter, pet: selectedPet, roomTheme: selectedRoomTheme,
-      petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, equippedDecorations,
+      petLevel, petExp, petProgressById, petNamesById, petRestAtById, expSpent, rewardUnlocks, questExpClaims, equippedDecorations,
     }
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -1529,7 +1572,11 @@ function App() {
 
         </header>
 
-        {activeNav === 'ภารกิจ' && <section className="panel gamification-page"><div className="panel-heading"><div><h2>ภารกิจของวันนี้</h2><p className="muted">ทำงานจริงเพื่อเก็บ EXP และปลดล็อกรางวัล</p></div><span className="gamification-level">Lv. {level} · {exp} EXP</span></div><div className="quest-grid"><article className="quest-card"><span className="quest-icon"><img src={questIcon(todayCompleted >= 1, false, hasActiveTask)} alt={todayCompleted >= 1 ? 'เควสสำเร็จ' : hasActiveTask ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>ก้าวเล็กประจำวัน</h3><p>ทำงานให้เสร็จอย่างน้อย 1 งานวันนี้</p><div className="quest-track"><span style={{width:`${Math.min(todayCompleted,1)*100}%`}}/></div><small>{Math.min(todayCompleted,1)} / 1 งาน</small></div><strong className="quest-reward">+100 EXP</strong><span className={`quest-status ${todayCompleted >= 1 ? 'is-done' : ''}`}>{todayCompleted >= 1 ? 'สำเร็จแล้ว ✓' : hasActiveTask ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span></article><article className="quest-card"><span className={`quest-icon ${level < 3 ? 'quest-is-locked' : ''}`}><img src={questIcon(weekCompleted >= 3, level < 3, level >= 3 && weekCompleted > 0)} alt={weekCompleted >= 3 ? 'เควสสำเร็จ' : level < 3 ? 'เควสล็อก' : weekCompleted > 0 ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>นักจัดการประจำสัปดาห์</h3><p>ทำงานให้เสร็จ 3 งานในช่วง 7 วันที่ผ่านมา</p><div className="quest-track"><span style={{width:`${Math.min(weekCompleted/3,1)*100}%`}}/></div><small>{Math.min(weekCompleted,3)} / 3 งาน</small></div><strong className="quest-reward">+300 EXP</strong><span className={`quest-status ${weekCompleted >= 3 ? 'is-done' : ''}`}>{weekCompleted >= 3 ? 'สำเร็จแล้ว ✓' : level < 3 ? 'ล็อกอยู่ 🔒' : weekCompleted > 0 ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span></article><article className="quest-card"><span className={`quest-icon ${level < 5 ? 'quest-is-locked' : ''}`}><img src={questIcon(streak >= 7, level < 5, level >= 5 && streak > 0)} alt={streak >= 7 ? 'เควสสำเร็จ' : level < 5 ? 'เควสล็อก' : streak > 0 ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>รักษาไฟในการทำงาน</h3><p>ทำงานสำเร็จต่อเนื่องหลายวัน</p><div className="quest-track"><span style={{width:`${Math.min(streak/7,1)*100}%`}}/></div><small>Streak {streak} วัน</small></div><strong className="quest-reward">เป้าหมาย 7 วัน</strong><span className="quest-status">{streak >= 7 ? 'สำเร็จแล้ว ✓' : level < 5 ? 'ล็อกอยู่ 🔒' : streak > 0 ? 'กำลังทำ' : 'สะสมต่อไป'}</span></article></div><p className="gamification-note">EXP และภารกิจคำนวณจากงานที่ทำเครื่องหมายว่าเสร็จแล้วในเบราว์เซอร์นี้ การติ๊กงานเดิมซ้ำจะไม่เพิ่มจำนวนงานที่เสร็จโดยรวม</p></section>}
+        {activeNav === 'ภารกิจ' && <section className="panel gamification-page"><div className="panel-heading"><div><h2>ภารกิจของวันนี้</h2><p className="muted">ทำงานจริงเพื่อเก็บ EXP และปลดล็อกรางวัล</p></div><span className="gamification-level">Lv. {level} · {exp} EXP</span></div><div className="quest-grid">
+          <article className="quest-card"><span className="quest-icon"><img src={questIcon(todayCompleted >= 1, false, todayCompleted < 1 && hasActiveTask)} alt={dailyQuestClaimed ? 'เควสสำเร็จ' : hasActiveTask ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>ก้าวเล็กประจำวัน</h3><p>ทำงานให้เสร็จอย่างน้อย 1 งานวันนี้</p><div className="quest-track"><span style={{width:`${Math.min(todayCompleted,1)*100}%`}}/></div><small>{Math.min(todayCompleted,1)} / 1 งาน</small></div><strong className="quest-reward">+100 EXP</strong><span className={`quest-status ${dailyQuestClaimed ? 'is-done' : ''}`}>{todayCompleted >= 1 ? (dailyQuestClaimed ? 'รับ EXP แล้ว ✓' : 'สำเร็จแล้ว ✓') : hasActiveTask ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span></article>
+          <article className="quest-card"><span className={`quest-icon ${level < 3 ? 'quest-is-locked' : ''}`}><img src={questIcon(weekCompleted >= 3, level < 3, level >= 3 && weekCompleted > 0)} alt={weeklyQuestClaimed ? 'เควสสำเร็จ' : level < 3 ? 'เควสล็อก' : weekCompleted > 0 ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>นักจัดการประจำสัปดาห์</h3><p>ทำงานให้เสร็จ 3 งานในช่วง 7 วันที่ผ่านมา</p><div className="quest-track"><span style={{width:`${Math.min(weekCompleted/3,1)*100}%`}}/></div><small>{Math.min(weekCompleted,3)} / 3 งาน</small></div><strong className="quest-reward">+300 EXP</strong><span className={`quest-status ${weeklyQuestClaimed ? 'is-done' : ''}`}>{level < 3 ? 'ล็อกอยู่ 🔒' : weekCompleted >= 3 ? (weeklyQuestClaimed ? 'รับ EXP แล้ว ✓' : 'สำเร็จแล้ว ✓') : weekCompleted > 0 ? 'กำลังทำ' : 'ยังไม่เริ่ม'}</span></article>
+          <article className="quest-card"><span className={`quest-icon ${level < 5 ? 'quest-is-locked' : ''}`}><img src={questIcon(streak >= 7, level < 5, level >= 5 && streak > 0)} alt={streak >= 7 ? 'เควสสำเร็จ' : level < 5 ? 'เควสล็อก' : streak > 0 ? 'เควสกำลังทำ' : 'เควสปกติ'} /></span><div className="quest-copy"><h3>รักษาไฟในการทำงาน</h3><p>ทำงานสำเร็จต่อเนื่องหลายวัน</p><div className="quest-track"><span style={{width:`${Math.min(streak/7,1)*100}%`}}/></div><small>Streak {streak} วัน</small></div><strong className="quest-reward">เป้าหมาย 7 วัน</strong><span className={`quest-status ${streak >= 7 ? 'is-done' : ''}`}>{streak >= 7 ? 'สำเร็จแล้ว ✓' : level < 5 ? 'ล็อกอยู่ 🔒' : streak > 0 ? 'กำลังทำ' : 'สะสมต่อไป'}</span></article>
+        </div><p className="gamification-note">EXP จากภารกิจประจำวันและรายสัปดาห์จะรับได้อย่างละ 1 ครั้งต่อวัน และปลดล็อกให้รับใหม่เมื่อขึ้นวันถัดไป ส่วนงานที่สำเร็จจะนับตามสถานะงานปัจจุบัน</p></section>}
         {activeNav === 'ความสำเร็จ' && <section className="panel gamification-page growth-page">
           <div className="panel-heading"><div><h2>การเติบโตของฉัน</h2><p className="muted">สามเส้นทางที่เติบโตจากการลงมือทำจริง</p></div><span className="gamification-level">{completed} งานสำเร็จ</span></div>
           <div className="growth-grid">
